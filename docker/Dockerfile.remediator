@@ -1,0 +1,28 @@
+# Multi-stage build for Go remediator
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY pkg/ ./pkg/
+COPY cmd/remediator/ ./cmd/remediator/
+
+# Build
+RUN CGO_ENABLED=0 GOOS=linux go build -o /remediator ./cmd/remediator
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+COPY --from=builder /remediator .
+
+CMD ["./remediator"]

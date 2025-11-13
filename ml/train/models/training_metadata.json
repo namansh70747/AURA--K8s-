@@ -1,0 +1,71 @@
+{
+  "training_date": "2025-11-12T22:09:25.535277",
+  "version": "1.0.0-simplified",
+  "total_samples": 10000,
+  "train_samples": 8000,
+  "test_samples": 2000,
+  "num_features": 13,
+  "num_anomaly_types": 15,
+  "anomaly_types": [
+    "cache_thrashing",
+    "connection_pool_exhausted",
+    "cpu_spike",
+    "deadlock",
+    "disk_full",
+    "disk_io_bottleneck",
+    "dns_resolution_failure",
+    "healthy",
+    "high_error_rate",
+    "memory_leak",
+    "network_latency",
+    "oom_kill",
+    "pod_crash",
+    "resource_contention",
+    "slow_response"
+  ],
+  "feature_names": [
+    "cpu_usage",
+    "memory_usage",
+    "disk_usage",
+    "network_bytes_sec",
+    "error_rate",
+    "latency_ms",
+    "restart_count",
+    "age_minutes",
+    "cpu_memory_ratio",
+    "resource_pressure",
+    "error_latency_product",
+    "network_per_cpu",
+    "is_critical"
+  ],
+  "model_performance": {
+    "random_forest": {
+      "accuracy": 0.992,
+      "precision": 0.9921254595588236,
+      "recall": 0.992,
+      "f1_score": 0.9919986225104747
+    },
+    "gradient_boosting": {
+      "accuracy": 0.9905,
+      "precision": 0.9908193221830986,
+      "recall": 0.9905,
+      "f1_score": 0.9905914561600595
+    },
+    "xgboost": {
+      "accuracy": 0.9905,
+      "precision": 0.9905675684457499,
+      "recall": 0.9905,
+      "f1_score": 0.9905175243099567
+    },
+    "lightgbm": {
+      "accuracy": 0.992,
+      "precision": 0.9921751336898397,
+      "recall": 0.992,
+      "f1_score": 0.9920467218187606
+    }
+  },
+  "ensemble_performance": {
+    "accuracy": 0.9905,
+    "f1_score": 0.9905175243099567
+  }
+}

@@ -1,0 +1,22 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    type: postgres
+    access: proxy
+    url: timescaledb:5432
+    database: aura_metrics
+    user: aura
+    secureJsonData:
+      password: "aura_password"
+    jsonData:
+      sslmode: "disable"
+      postgresVersion: 1500
+      timescaledb: true
+      maxOpenConns: 100
+      maxIdleConns: 25
+      connMaxLifetime: 14400
+      timeInterval: "10s"
+    isDefault: true
+    editable: true
+    version: 1

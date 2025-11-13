@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remediator
+  namespace: aura-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: remediator
+  template:
+    metadata:
+      labels:
+        app: remediator
+    spec:
+      serviceAccountName: aura-sa
+      containers:
+        - name: remediator
+          image: aura-remediator:latest
+          imagePullPolicy: Never # For local KIND
+          env:
+            - name: DATABASE_URL
+              value: "postgres://aura:aura_password@timescaledb:5432/aura_metrics?sslmode=disable"
+            - name: MCP_SERVER_URL
+              value: "http://mcp-server:8000"
+            - name: REMEDIATION_INTERVAL
+              value: "30s"
+            - name: LOG_LEVEL
+              value: "info"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - ps aux | grep remediator | grep -v grep
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test -f /tmp/remediator-ready
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"

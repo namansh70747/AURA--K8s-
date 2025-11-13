@@ -1,0 +1,15 @@
+[
+  "cpu_usage",
+  "memory_usage",
+  "disk_usage",
+  "network_bytes_sec",
+  "error_rate",
+  "latency_ms",
+  "restart_count",
+  "age_minutes",
+  "cpu_memory_ratio",
+  "resource_pressure",
+  "error_latency_product",
+  "network_per_cpu",
+  "is_critical"
+]

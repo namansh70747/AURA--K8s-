@@ -1,0 +1,52 @@
+# ML Training Requirements for AURA K8s - Python 3.11 Compatible
+# Tested with Python 3.11.x (recommended)
+
+# Core Data Science (Latest stable versions)
+pandas>=2.2.0
+numpy>=1.26.0
+scipy>=1.13.0
+
+# Machine Learning - Traditional
+scikit-learn>=1.5.0
+imbalanced-learn>=0.12.0
+
+# Gradient Boosting Libraries (Latest stable)
+xgboost>=2.1.0
+lightgbm>=4.5.0
+catboost>=1.2.7
+
+# Deep Learning (Latest stable releases)
+tensorflow>=2.15.0,<2.16.0
+torch>=2.1.0,<2.2.0
+transformers>=4.35.0
+
+# Time Series Forecasting (Stable version)
+# prophet==1.1.1  # Commented out - requires heavy C++ build tools
+statsmodels>=0.14.0
+
+# Hyperparameter Optimization
+optuna>=4.0.0
+hyperopt>=0.2.7
+
+# Model Persistence
+joblib>=1.4.0
+
+# Visualization
+matplotlib>=3.9.0
+seaborn>=0.13.0
+plotly>=5.24.0
+
+# Progress Bars
+tqdm>=4.66.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# API for serving
+fastapi>=0.115.0
+uvicorn>=0.32.0
+pydantic>=2.9.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.32.0

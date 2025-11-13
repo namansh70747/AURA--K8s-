@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY mcp/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy MCP server code
+COPY mcp/ ./
+
+# Create health check script
+RUN echo '#!/bin/sh\ncurl -f http://localhost:8000/health || exit 1' > /health.sh && chmod +x /health.sh
+
+EXPOSE 8000
+
+# Use Ollama server (free!)
+CMD ["uvicorn", "server_ollama:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

@@ -1,0 +1,74 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Go
+*.test
+*.out
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+ENV/
+env/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ML Models (keep models but ignore large files)
+ml/models/*.pkl
+ml/models/*.h5
+ml/train/data/*.csv
+
+# Environment
+.env
+.env.local
+.env.example
+
+# Data & Databases
+data/
+*.db
+*.sqlite
+
+# Logs
+*.log
+logs/
+
+# Temporary/Status Files
+*_FIXES*.md
+*_STATUS*.md
+PROJECT_STATUS.md
+SYSTEM_STATUS*.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.Trash-*
+
+# Temporary & Backup files
+*.tmp
+*.backup
+*.old
+*.bak
+
+# Docker volumes (if created locally)
+timescaledb_data/
+grafana_data/
+ollama_data/

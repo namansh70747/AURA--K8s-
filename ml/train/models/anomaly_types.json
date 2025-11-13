@@ -1,0 +1,17 @@
+[
+  "cache_thrashing",
+  "connection_pool_exhausted",
+  "cpu_spike",
+  "deadlock",
+  "disk_full",
+  "disk_io_bottleneck",
+  "dns_resolution_failure",
+  "healthy",
+  "high_error_rate",
+  "memory_leak",
+  "network_latency",
+  "oom_kill",
+  "pod_crash",
+  "resource_contention",
+  "slow_response"
+]
