@@ -346,6 +346,13 @@ if command -v grafana-server &> /dev/null || command -v grafana &> /dev/null; th
             GRAFANA_PROVISIONING_DIR="$GRAFANA_STATE_DIR/provisioning"
             GRAFANA_DASHBOARD_DIR="$GRAFANA_STATE_DIR/dashboards"
 
+            if [ -d "$GRAFANA_STATE_DIR" ] && [ "${PRESERVE_GRAFANA_STATE:-false}" != "true" ]; then
+                echo -e "${YELLOW}   Resetting Grafana state at $GRAFANA_STATE_DIR (set PRESERVE_GRAFANA_STATE=true to keep it)${NC}"
+                rm -rf "$GRAFANA_STATE_DIR"
+            elif [ -d "$GRAFANA_STATE_DIR" ]; then
+                echo -e "${YELLOW}   PRESERVE_GRAFANA_STATE=true -> keeping existing Grafana data${NC}"
+            fi
+
             mkdir -p "$GRAFANA_STATE_DIR/data" \
                      "$GRAFANA_STATE_DIR/logs" \
                      "$GRAFANA_STATE_DIR/plugins" \
@@ -353,9 +360,9 @@ if command -v grafana-server &> /dev/null || command -v grafana &> /dev/null; th
                      "$GRAFANA_PROVISIONING_DIR/dashboards" \
                      "$GRAFANA_DASHBOARD_DIR"
 
-            cp "$PROJECT_ROOT"/grafana/dashboards/*.json "$GRAFANA_DASHBOARD_DIR"/ 2>/dev/null || true
-            cp "$PROJECT_ROOT/grafana/datasources/datasource-local.yml" "$GRAFANA_PROVISIONING_DIR/datasources/aura.yml" 2>/dev/null || true
-            cp "$PROJECT_ROOT/grafana/dashboards/dashboard.yml" "$GRAFANA_PROVISIONING_DIR/dashboards/aura.yml" 2>/dev/null || true
+            cp -f "$PROJECT_ROOT"/grafana/dashboards/*.json "$GRAFANA_DASHBOARD_DIR"/ 2>/dev/null || true
+            cp -f "$PROJECT_ROOT/grafana/datasources/datasource-local.yml" "$GRAFANA_PROVISIONING_DIR/datasources/aura.yml" 2>/dev/null || true
+            cp -f "$PROJECT_ROOT/grafana/dashboards/dashboard.yml" "$GRAFANA_PROVISIONING_DIR/dashboards/aura.yml" 2>/dev/null || true
             if [ -f "$GRAFANA_PROVISIONING_DIR/dashboards/aura.yml" ]; then
                 if [[ "$OSTYPE" == "darwin"* ]]; then
                     sed -i '' "s|/var/lib/grafana/dashboards|$GRAFANA_DASHBOARD_DIR|g" "$GRAFANA_PROVISIONING_DIR/dashboards/aura.yml"

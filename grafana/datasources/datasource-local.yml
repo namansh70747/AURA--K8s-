@@ -13,8 +13,8 @@ datasources:
     jsonData:
       database: aura_metrics
       sslmode: "disable"
-      postgresVersion: 1400
-      timescaledb: false
+      postgresVersion: 1500
+      timescaledb: true
       maxOpenConns: 100
       maxIdleConns: 25
       connMaxLifetime: 14400
