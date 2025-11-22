@@ -70,7 +70,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  COUNT(*) as total_remediations\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  COUNT(*) as total_remediations\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -160,7 +160,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  (COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)) as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN NULL\n    ELSE (COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0))\n  END as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -242,7 +242,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))) as avg_duration\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND completed_at IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  CASE\n    WHEN COUNT(*) FILTER (WHERE completed_at IS NOT NULL) = 0 THEN NULL\n    ELSE AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))) FILTER (WHERE completed_at IS NOT NULL)\n  END as avg_duration\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -331,7 +331,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COALESCE(strategy, 'other') as strategy,\n  COUNT(*) as count\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY strategy\nORDER BY count DESC\nLIMIT 10",
+          "rawSql": "SELECT\n  COALESCE(strategy, 'other') as strategy,\n  COUNT(*) as count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY strategy\nORDER BY count DESC\nLIMIT 10",
           "refId": "A",
           "select": [
             [
@@ -468,7 +468,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('10 minutes', executed_at) as time,\n  COUNT(*) FILTER (WHERE success = true) as \"Successful\",\n  COUNT(*) FILTER (WHERE success = false) as \"Failed\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('10 minutes', executed_at) as time,\n  COUNT(*) FILTER (WHERE success = true) as \"Successful\",\n  COUNT(*) FILTER (WHERE success = false) as \"Failed\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -575,7 +575,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('10 minutes', executed_at) as time,\n  AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))) as \"Avg Duration\",\n  MAX(EXTRACT(EPOCH FROM (completed_at - executed_at))) as \"Max Duration\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND completed_at IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('10 minutes', executed_at) as time,\n  AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))) as \"Avg Duration\",\n  MAX(EXTRACT(EPOCH FROM (completed_at - executed_at))) as \"Max Duration\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND completed_at IS NOT NULL\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -738,7 +738,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  executed_at as timestamp,\n  pod_name,\n  namespace,\n  COALESCE(strategy, action) as strategy,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - executed_at)) as duration,\n  error_message,\n  action as actions_taken\nFROM remediations\nWHERE $__timeFilter(executed_at)\nORDER BY timestamp DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  executed_at as timestamp,\n  pod_name,\n  namespace,\n  COALESCE(strategy, action) as strategy,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - executed_at)) as duration,\n  error_message,\n  action as actions_taken\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nORDER BY timestamp DESC\nLIMIT 100",
           "refId": "A",
           "select": [
             [
@@ -844,7 +844,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('15 minutes', executed_at) as time,\n  COALESCE(strategy, 'other') as strategy,\n  COUNT(*) as count\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time, strategy\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('15 minutes', executed_at) as time,\n  COALESCE(strategy, 'other') as strategy,\n  COUNT(*) as count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time, strategy\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -991,7 +991,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COALESCE(strategy, 'other') as strategy,\n  COUNT(*) as total,\n  (COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)) as success_rate,\n  AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))) as avg_duration\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY strategy\nORDER BY total DESC",
+          "rawSql": "SELECT\n  COALESCE(strategy, 'other') as strategy,\n  COUNT(*) as total,\n  (COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)) as success_rate,\n  AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))) as avg_duration\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY strategy\nORDER BY total DESC",
           "refId": "A",
           "select": [
             [
@@ -1034,7 +1034,7 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-24h",
     "to": "now"
   },
   "timepicker": {},

@@ -1,302 +1,279 @@
 #!/usr/bin/env python3
 """
-Realistic Test Data Generator for AURA K8s
-Generates workload patterns that simulate real Kubernetes applications
+AURA K8s Test Data Generator
+Generates synthetic pod metrics data for testing the system
 """
 
 import os
 import time
-import random
-import logging
 import psycopg2
+import psycopg2.extensions
+import random
 from datetime import datetime, timedelta
-from psycopg2.extras import execute_values
-import math
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
+import logging
+
+if TYPE_CHECKING:
+    from psycopg2.extensions import connection
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://aura:aura_password@timescaledb:5432/aura_metrics")
-RANDOM_SEED = int(os.getenv("RANDOM_SEED", "42"))
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://aura:aura_password@localhost:5432/aura_metrics")
 
-# Set seed for reproducibility
-random.seed(RANDOM_SEED)
-
-# Realistic pod definitions
-PODS = [
-    {"name": "web-frontend", "base_cpu": 300, "base_memory": 256, "cpu_variance": 150, "mem_variance": 128},
-    {"name": "api-backend", "base_cpu": 500, "base_memory": 512, "cpu_variance": 200, "mem_variance": 200},
-    {"name": "database", "base_cpu": 1000, "base_memory": 2048, "cpu_variance": 300, "mem_variance": 512},
-    {"name": "cache-redis", "base_cpu": 100, "base_memory": 256, "cpu_variance": 50, "mem_variance": 100},
-    {"name": "message-queue", "base_cpu": 200, "base_memory": 512, "cpu_variance": 100, "mem_variance": 200},
-    {"name": "worker-1", "base_cpu": 800, "base_memory": 1024, "cpu_variance": 300, "mem_variance": 400},
-    {"name": "monitoring", "base_cpu": 150, "base_memory": 256, "cpu_variance": 75, "mem_variance": 128},
+# Test pod configurations
+TEST_PODS: List[Dict[str, str]] = [
+    {"name": "nginx-deployment-12345-abcde", "namespace": "default", "node": "kind-worker"},
+    {"name": "redis-master-67890-fghij", "namespace": "default", "node": "kind-worker"},
+    {"name": "app-backend-54321-klmno", "namespace": "production", "node": "kind-worker2"},
+    {"name": "app-frontend-98765-pqrst", "namespace": "production", "node": "kind-worker2"},
+    {"name": "monitoring-agent-11111-uvwxy", "namespace": "kube-system", "node": "kind-control-plane"},
 ]
 
-NAMESPACES = ["production", "staging", "development"]
-
-# Workload patterns (time-of-day effects)
-def get_load_multiplier():
+def get_db_connection() -> "connection":
+    """Get database connection with retry logic.
+    
+    Returns:
+        psycopg2 connection object
+        
+    Raises:
+        psycopg2.OperationalError: If connection fails after max retries
     """
-    Simulate time-of-day traffic patterns
-    Business hours (9-17): high load
-    Night time (0-6): low load
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Database connection failed (attempt {attempt + 1}/{max_retries}): {e}")
+                time.sleep(2)
+            else:
+                raise e
+
+def generate_pod_metrics() -> Dict[str, Any]:
+    """Generate synthetic pod metrics.
+    
+    Returns:
+        Dictionary containing pod metrics with all required fields
     """
-    hour = datetime.now().hour
-    if 9 <= hour <= 17:
-        return 1.0 + random.uniform(0, 0.3)  # Peak hours: 100-130% load
-    elif 6 <= hour < 9:
-        return 0.5 + random.uniform(0, 0.2)  # Morning ramp: 50-70%
-    elif 17 <= hour < 21:
-        return 0.8 + random.uniform(0, 0.2)  # Evening: 80-100%
-    else:
-        return 0.2 + random.uniform(0, 0.1)  # Night: 20-30%
+    pod = random.choice(TEST_PODS)
 
+    # Base metrics
+    cpu_usage = random.uniform(10, 500)  # millicores
+    memory_usage = random.randint(50 * 1024 * 1024, 2 * 1024 * 1024 * 1024)  # bytes
+    memory_limit = 2 * 1024 * 1024 * 1024  # 2GB
+    cpu_limit = 1000  # millicores
 
-def simulate_realistic_pod_metrics(pod_def: dict, namespace: str, timestamp: datetime):
-    """
-    Generate realistic pod metrics based on workload patterns
-    """
-    # Base load
-    load_multiplier = get_load_multiplier()
+    # Network metrics
+    network_rx = random.randint(1000, 100000)
+    network_tx = random.randint(1000, 50000)
 
-    # Calculate CPU and Memory
-    cpu_millicores = pod_def["base_cpu"] * load_multiplier + random.gauss(0, pod_def["cpu_variance"])
-    memory_usage = pod_def["base_memory"] * load_multiplier + random.gauss(0, pod_def["mem_variance"])
+    # Disk metrics
+    disk_usage = random.randint(100 * 1024 * 1024, 5 * 1024 * 1024 * 1024)  # bytes
 
-    # Ensure values are positive
-    cpu_millicores = max(0, cpu_millicores)
-    memory_usage = max(0, memory_usage)
+    # Container state
+    phases = ["Running", "Pending", "Succeeded", "Failed"]
+    phase = random.choices(phases, weights=[0.9, 0.05, 0.03, 0.02])[0]
 
-    # Limit to reasonable max (containers have limits)
-    cpu_limit = pod_def["base_cpu"] * 5
-    memory_limit = pod_def["base_memory"] * 4
+    ready = phase == "Running"
+    restarts = random.randint(0, 5) if phase == "Running" else random.randint(0, 10)
+    age = random.randint(60, 86400)  # seconds
 
-    cpu_utilization = (cpu_millicores / cpu_limit) * 100
-    memory_utilization = (memory_usage / memory_limit) * 100
+    # Anomalies (introduce some issues)
+    has_oom_kill = random.random() < 0.02  # 2% chance
+    has_crash_loop = restarts > 3 and random.random() < 0.3
+    has_high_cpu = cpu_usage > 800
+    has_network_issues = random.random() < 0.05
 
-    # Network traffic (correlated with CPU)
-    network_rx_bytes = cpu_millicores * 1000 + random.uniform(100000, 500000)
-    network_tx_bytes = cpu_millicores * 800 + random.uniform(50000, 300000)
+    # If OOM kill, set memory high
+    if has_oom_kill:
+        memory_usage = int(memory_limit * 1.1)
+        phase = "Failed"
+        ready = False
 
-    # Error rate (low in normal conditions, spikes during issues)
-    base_error_rate = 0.01  # 1% normal
-    if random.random() < 0.05:  # 5% chance of spike
-        error_rate = random.uniform(0.05, 0.20)
-    else:
-        error_rate = base_error_rate
-
-    network_rx_errors = int(max(0, random.gauss(error_rate * 100, 5)))
-    network_tx_errors = int(max(0, random.gauss(error_rate * 100, 5)))
-
-    # Pod restart behavior (usually 0, sometimes 1-2 on issues)
-    if random.random() < 0.02:  # 2% chance of restart
-        restarts = random.randint(1, 3)
-    else:
-        restarts = 0
-
-    # Simulate issues
-    has_oom_kill = False
-    has_crash_loop = False
-    has_high_cpu = cpu_utilization > 80
-    has_network_issues = network_rx_errors + network_tx_errors > 50
-
-    # OOM kill simulation
-    if memory_utilization > 90 and random.random() < 0.1:  # 10% chance if memory high
-        has_oom_kill = True
-        memory_utilization = 95
-        restarts = max(restarts, 1)
-
-    # Crash loop simulation
-    if restarts > 2 and random.random() < 0.15:  # Likely after multiple restarts
-        has_crash_loop = True
-
-    # Pod readiness
-    ready = not (has_oom_kill or has_crash_loop) and restarts <= 2
-
-    disk_usage_bytes = random.uniform(100 * 1024 * 1024, 500 * 1024 * 1024)  # 100-500 MB
-    disk_limit_bytes = 10 * 1024 * 1024 * 1024  # 10 GB
-
-    # Trends (rate of change)
-    cpu_trend = random.uniform(-5, 10)  # -5 to +10 percentage points per minute
-    memory_trend = random.uniform(-3, 5)
-    restart_trend = random.uniform(0, 2)
+    # If crash loop, set restarts high
+    if has_crash_loop:
+        restarts = random.randint(5, 15)
+        if random.random() < 0.5:
+            phase = "CrashLoopBackOff"
+            ready = False
 
     return {
-        "cpu_usage_millicores": cpu_millicores,
+        "pod_name": pod["name"],
+        "namespace": pod["namespace"],
+        "node_name": pod["node"],
+        "container_name": f"{pod['name']}-container",
+        "timestamp": datetime.now(),
+        "cpu_usage_millicores": cpu_usage,
+        "memory_usage_bytes": memory_usage,
+        "memory_limit_bytes": memory_limit,
         "cpu_limit_millicores": cpu_limit,
-        "cpu_utilization": cpu_utilization,
-        "memory_usage_bytes": int(memory_usage * 1024 * 1024),
-        "memory_limit_bytes": int(memory_limit * 1024 * 1024),
-        "memory_utilization": memory_utilization,
-        "disk_usage_bytes": int(disk_usage_bytes),
-        "disk_limit_bytes": int(disk_limit_bytes),
-        "network_rx_bytes": int(network_rx_bytes),
-        "network_tx_bytes": int(network_tx_bytes),
-        "network_rx_errors": network_rx_errors,
-        "network_tx_errors": network_tx_errors,
-        "restarts": restarts,
+        "cpu_utilization": (cpu_usage / cpu_limit) * 100,
+        "memory_utilization": (memory_usage / memory_limit) * 100,
+        "network_rx_bytes": network_rx,
+        "network_tx_bytes": network_tx,
+        "network_rx_errors": random.randint(0, 10),
+        "network_tx_errors": random.randint(0, 5),
+        "disk_usage_bytes": disk_usage,
+        "disk_limit_bytes": 10 * 1024 * 1024 * 1024,  # 10GB
+        "phase": phase,
         "ready": ready,
-        "phase": "Running" if ready else "Pending",
+        "restarts": restarts,
+        "age": age,
         "container_ready": ready,
         "container_state": "running" if ready else "waiting",
+        "last_state_reason": "Completed" if phase == "Succeeded" else ("Error" if phase == "Failed" else ""),
+        "cpu_trend": random.uniform(-10, 10),
+        "memory_trend": random.uniform(-10, 10),
+        "restart_trend": random.uniform(-1, 1),
         "has_oom_kill": has_oom_kill,
         "has_crash_loop": has_crash_loop,
         "has_high_cpu": has_high_cpu,
         "has_network_issues": has_network_issues,
-        "cpu_trend": cpu_trend,
-        "memory_trend": memory_trend,
-        "restart_trend": restart_trend,
     }
 
-
-def insert_metrics(conn, metrics_batch):
-    """Insert metrics into database"""
+def insert_pod_metrics(conn: "connection", metrics: Dict[str, Any]) -> None:
+    """Insert pod metrics into database.
+    
+    Args:
+        conn: Database connection object
+        metrics: Dictionary containing pod metrics to insert
+        
+    Raises:
+        psycopg2.Error: If database insertion fails
+    """
     query = """
     INSERT INTO pod_metrics (
         pod_name, namespace, node_name, container_name, timestamp,
         cpu_usage_millicores, memory_usage_bytes, memory_limit_bytes, cpu_limit_millicores,
         cpu_utilization, memory_utilization, network_rx_bytes, network_tx_bytes,
         network_rx_errors, network_tx_errors, disk_usage_bytes, disk_limit_bytes,
-        phase, ready, restarts, age, container_ready, container_state,
-        has_oom_kill, has_crash_loop, has_high_cpu, has_network_issues,
-        cpu_trend, memory_trend, restart_trend
-    ) VALUES %s
+        phase, ready, restarts, age, container_ready, container_state, last_state_reason,
+        cpu_trend, memory_trend, restart_trend,
+        has_oom_kill, has_crash_loop, has_high_cpu, has_network_issues
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+    )
     ON CONFLICT (timestamp, pod_name, namespace) DO NOTHING
     """
 
-    values = [
-        (
-            m["pod_name"], m["namespace"], m["node_name"], m["container_name"], m["timestamp"],
-            m["metrics"]["cpu_usage_millicores"], m["metrics"]["memory_usage_bytes"],
-            m["metrics"]["memory_limit_bytes"], m["metrics"]["cpu_limit_millicores"],
-            m["metrics"]["cpu_utilization"], m["metrics"]["memory_utilization"],
-            m["metrics"]["network_rx_bytes"], m["metrics"]["network_tx_bytes"],
-            m["metrics"]["network_rx_errors"], m["metrics"]["network_tx_errors"],
-            m["metrics"]["disk_usage_bytes"], m["metrics"]["disk_limit_bytes"],
-            m["metrics"]["phase"], m["metrics"]["ready"], m["metrics"]["restarts"],
-            3600, m["metrics"]["container_ready"], m["metrics"]["container_state"],
-            m["metrics"]["has_oom_kill"], m["metrics"]["has_crash_loop"],
-            m["metrics"]["has_high_cpu"], m["metrics"]["has_network_issues"],
-            m["metrics"]["cpu_trend"], m["metrics"]["memory_trend"], m["metrics"]["restart_trend"],
-        )
-        for m in metrics_batch
-    ]
+    values = (
+        metrics["pod_name"], metrics["namespace"], metrics["node_name"], metrics["container_name"], metrics["timestamp"],
+        metrics["cpu_usage_millicores"], metrics["memory_usage_bytes"], metrics["memory_limit_bytes"], metrics["cpu_limit_millicores"],
+        metrics["cpu_utilization"], metrics["memory_utilization"], metrics["network_rx_bytes"], metrics["network_tx_bytes"],
+        metrics["network_rx_errors"], metrics["network_tx_errors"], metrics["disk_usage_bytes"], metrics["disk_limit_bytes"],
+        metrics["phase"], metrics["ready"], metrics["restarts"], metrics["age"], metrics["container_ready"], metrics["container_state"], metrics["last_state_reason"],
+        metrics["cpu_trend"], metrics["memory_trend"], metrics["restart_trend"],
+        metrics["has_oom_kill"], metrics["has_crash_loop"], metrics["has_high_cpu"], metrics["has_network_issues"]
+    )
 
-    with conn.cursor() as cur:
-        execute_values(cur, query, values, page_size=100)
-        conn.commit()
+    with conn.cursor() as cursor:
+        cursor.execute(query, values)
+    conn.commit()
 
+def generate_single_batch() -> int:
+    """Generate ONE batch of current metrics for all pods.
+    
+    Returns:
+        Number of metrics generated
+        
+    Raises:
+        Exception: If database operation fails
+    """
+    try:
+        conn = get_db_connection()
+        
+        # Generate current metrics for each pod
+        for _ in range(len(TEST_PODS)):
+            metrics = generate_pod_metrics()
+            metrics["timestamp"] = datetime.now()
+            insert_pod_metrics(conn, metrics)
+        
+        conn.close()
+        return len(TEST_PODS)
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating batch: {e}")
+        if 'conn' in locals():
+            conn.close()
+        raise
 
-def generate_and_store_data():
-    """Main data generation loop"""
-    logger.info("🚀 Starting realistic data generation...")
-    logger.info(f"   Using seed: {RANDOM_SEED} (for reproducibility)")
+def generate_and_store_data() -> None:
+    """Generate historical data for the last 2 hours (ONE-TIME ONLY).
+    
+    Raises:
+        Exception: If data generation fails
+    """
+    logger.info("🎯 Starting AURA K8s Historical Data Generator")
+    logger.info("=" * 60)
+    logger.info("⚠️  This generates 2 hours of historical data - RUN ONCE!")
 
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = get_db_connection()
         logger.info("✅ Connected to database")
-    except psycopg2.OperationalError as e:
-        logger.error(f"❌ Failed to connect to database: {e}")
-        return
+
+        # Generate data for the last 2 hours with 15-second intervals
+        end_time = datetime.now()
+        start_time = end_time - timedelta(hours=2)
+        interval = timedelta(seconds=15)
+
+        current_time = start_time
+        total_records = 0
+
+        logger.info(f"📊 Generating data from {start_time} to {end_time}")
+
+        while current_time <= end_time:
+            # Generate metrics for multiple pods at each timestamp
+            for _ in range(len(TEST_PODS)):
+                metrics = generate_pod_metrics()
+                metrics["timestamp"] = current_time
+                insert_pod_metrics(conn, metrics)
+                total_records += 1
+
+            current_time += interval
+
+            # Progress update every 100 records
+            if total_records % 100 == 0:
+                logger.info(f"📝 Generated {total_records} records...")
+
+        logger.info(f"✅ Successfully generated {total_records} test records")
+        logger.info("🎉 Historical data generation complete!")
+
+    except Exception as e:
+        logger.error(f"❌ Error generating test data: {e}")
+        raise
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+def main() -> None:
+    """Main loop for continuous data generation.
+    
+    Runs indefinitely, generating test data every 15 seconds.
+    """
+    logger.info("🔄 Starting continuous test data generation")
+    logger.info("📡 Generating current metrics every 15 seconds...")
+    logger.info("💡 This generates CURRENT data only, not historical batches")
 
     iteration = 0
-
-    try:
-        while True:
-            iteration += 1
-            timestamp = datetime.now()
-
-            logger.info(f"\n📊 Iteration {iteration} - {timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-
-            metrics_batch = []
-
-            for namespace in NAMESPACES:
-                for pod_def in PODS:
-                    # Create realistic pod name (with hash suffix)
-                    pod_hash = random.choice(["abc", "def", "ghi", "jkl", "mno"])
-                    pod_id = random.randint(1000, 9999)
-                    full_pod_name = f"{pod_def['name']}-{pod_id}-{pod_hash}"
-
-                    metrics = simulate_realistic_pod_metrics(pod_def, namespace, timestamp)
-
-                    metrics_batch.append({
-                        "pod_name": full_pod_name,
-                        "namespace": namespace,
-                        "node_name": f"node-{random.randint(1, 5)}",
-                        "container_name": pod_def["name"],
-                        "timestamp": timestamp,
-                        "metrics": metrics,
-                    })
-
-            # Insert into database
-            try:
-                insert_metrics(conn, metrics_batch)
-
-                # Count anomalies
-                anomalies = [m for m in metrics_batch if (
-                    m["metrics"]["has_oom_kill"] or
-                    m["metrics"]["has_crash_loop"] or
-                    m["metrics"]["has_high_cpu"] or
-                    m["metrics"]["has_network_issues"]
-                )]
-
-                logger.info(f"   ✅ Stored {len(metrics_batch)} metrics ({len(anomalies)} with issues)")
-
-                # Show anomalies
-                if anomalies:
-                    for anom in anomalies[:3]:
-                        issues = []
-                        if anom["metrics"]["has_oom_kill"]:
-                            issues.append("OOM")
-                        if anom["metrics"]["has_crash_loop"]:
-                            issues.append("CrashLoop")
-                        if anom["metrics"]["has_high_cpu"]:
-                            issues.append("HighCPU")
-                        if anom["metrics"]["has_network_issues"]:
-                            issues.append("NetErrors")
-
-                        logger.info(f"      🔴 {anom['namespace']}/{anom['pod_name']}: {', '.join(issues)}")
-
-            except psycopg2.Error as e:
-                logger.error(f"Database error: {e}")
-                conn.rollback()
-                # Reconnect
-                try:
-                    conn.close()
-                except:
-                    pass
-                try:
-                    conn = psycopg2.connect(DATABASE_URL)
-                except psycopg2.OperationalError:
-                    logger.warning("Failed to reconnect to database, retrying...")
-                    time.sleep(5)
-                    continue
-
-            # Sleep before next iteration
-            logger.info(f"   ⏳ Sleeping 10s before next iteration...")
-            time.sleep(10)
-
-    except KeyboardInterrupt:
-        logger.info("\n⏹️  Stopping data generation...")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-    finally:
+    while True:
         try:
-            conn.close()
-        except:
-            pass
-
+            iteration += 1
+            records = generate_single_batch()
+            logger.info(f"✅ Iteration {iteration}: Generated {records} current metrics")
+            
+            # Sleep for 15 seconds (matches collection interval)
+            time.sleep(15)
+            
+        except KeyboardInterrupt:
+            logger.info("🛑 Stopped by user")
+            break
+        except Exception as e:
+            logger.error(f"❌ Error in main loop: {e}")
+            time.sleep(10)  # Wait before retrying
 
 if __name__ == "__main__":
-    logger.info("=" * 70)
-    logger.info("   AURA K8s Realistic Data Generator")
-    logger.info("   Generates workload patterns matching real Kubernetes apps")
-    logger.info("=" * 70)
-
-    generate_and_store_data()
+    main()

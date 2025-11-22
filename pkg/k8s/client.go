@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	configpkg "github.com/namansh70747/aura-k8s/pkg/config"
 	"github.com/namansh70747/aura-k8s/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,7 +26,7 @@ type Client struct {
 	metricsClient *metricsv.Clientset
 }
 
-// NewClient creates a new Kubernetes client
+// NewClient creates a new Kubernetes client with proper timeouts and rate limiting
 func NewClient() (*Client, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -43,6 +44,11 @@ func NewClient() (*Client, error) {
 		}
 	}
 
+	// Configure timeouts and rate limiting (externalized via config package)
+	config.Timeout = configpkg.GetK8sTimeout()
+	config.QPS = configpkg.GetK8sQPS()
+	config.Burst = configpkg.GetK8sBurst()
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clientset: %w", err)
@@ -53,10 +59,17 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("failed to create metrics client: %w", err)
 	}
 
+	utils.Log.Info("Kubernetes client initialized with timeout=30s, QPS=50, Burst=100")
+
 	return &Client{
 		clientset:     clientset,
 		metricsClient: metricsClient,
 	}, nil
+}
+
+// Clientset returns the Kubernetes clientset
+func (c *Client) Clientset() *kubernetes.Clientset {
+	return c.clientset
 }
 
 // ListPods returns all pods in a namespace (or all namespaces if namespace is empty)

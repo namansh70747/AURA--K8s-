@@ -87,8 +87,8 @@ type Issue struct {
 	ResolvedAt           *time.Time `json:"resolved_at,omitempty"`
 	Status               string     `json:"status"` // Open, InProgress, Resolved
 	Confidence           float64    `json:"confidence"`
-	PredictedTimeHorizon int        `json:"predicted_time_horizon"` // seconds until issue occurs
-	RootCause            string     `json:"root_cause"`
+	PredictedTimeHorizon *int       `json:"predicted_time_horizon"` // seconds until issue occurs
+	RootCause            *string    `json:"root_cause"`
 }
 
 // Remediation represents an action taken to fix an issue
@@ -109,65 +109,42 @@ type Remediation struct {
 	Timestamp        time.Time  `json:"timestamp"`
 }
 
-// MLFeatures represents engineered features for ML prediction
+// MLFeatures represents engineered features for ML prediction.
+// Currently, the ML service uses a flexible map[string]float64 for features,
+// but this struct documents the feature schema for reference.
+// Only the actively used features are listed here to reduce confusion.
+// 
+// The actual features sent to the ML service (as defined in pkg/ml/client.go):
+// 1. cpu_usage - CPU utilization percentage
+// 2. memory_usage - Memory utilization percentage  
+// 3. disk_usage - Disk usage percentage
+// 4. network_bytes_sec - Network bytes per second
+// 5. error_rate - Network error rate
+// 6. latency_ms - Estimated latency in milliseconds
+// 7. restart_count - Number of pod restarts
+// 8. age_minutes - Pod age in minutes
+// 9. cpu_memory_ratio - CPU to memory utilization ratio
+// 10. resource_pressure - Average of CPU and memory utilization
+// 11. error_latency_product - Error rate * latency (composite metric)
+// 12. network_per_cpu - Network bytes per CPU unit
+// 13. is_critical - Boolean flag for critical conditions (HighCPU or OOMKill)
+//
+// NOTE: Additional features (trends, statistical features, time-based features)
+// can be added here in the future when they are implemented in the feature engineering pipeline.
 type MLFeatures struct {
-	// Current state (12 features)
-	CPUUsage          float64 `json:"cpu_usage"`
-	MemoryUsage       float64 `json:"memory_usage"`
-	CPUUtilization    float64 `json:"cpu_utilization"`
-	MemoryUtilization float64 `json:"memory_utilization"`
-	NetworkRxRate     float64 `json:"network_rx_rate"`
-	NetworkTxRate     float64 `json:"network_tx_rate"`
-	NetworkErrorRate  float64 `json:"network_error_rate"`
-	DiskUsagePercent  float64 `json:"disk_usage_percent"`
-	RestartCount      float64 `json:"restart_count"`
-	PodAge            float64 `json:"pod_age"`
-	IsReady           float64 `json:"is_ready"`
-	ContainerReady    float64 `json:"container_ready"`
-
-	// Trends (8 features)
-	CPUTrend          float64 `json:"cpu_trend"`
-	MemoryTrend       float64 `json:"memory_trend"`
-	NetworkRxTrend    float64 `json:"network_rx_trend"`
-	NetworkTxTrend    float64 `json:"network_tx_trend"`
-	RestartTrend      float64 `json:"restart_trend"`
-	CPUVolatility     float64 `json:"cpu_volatility"`
-	MemoryVolatility  float64 `json:"memory_volatility"`
-	NetworkVolatility float64 `json:"network_volatility"`
-
-	// Statistical features (15 features)
-	CPUMean               float64 `json:"cpu_mean"`
-	CPUStd                float64 `json:"cpu_std"`
-	CPUMax                float64 `json:"cpu_max"`
-	CPUMin                float64 `json:"cpu_min"`
-	MemoryMean            float64 `json:"memory_mean"`
-	MemoryStd             float64 `json:"memory_std"`
-	MemoryMax             float64 `json:"memory_max"`
-	MemoryMin             float64 `json:"memory_min"`
-	NetworkMean           float64 `json:"network_mean"`
-	NetworkStd            float64 `json:"network_std"`
-	NetworkMax            float64 `json:"network_max"`
-	RestartMean           float64 `json:"restart_mean"`
-	RestartStd            float64 `json:"restart_std"`
-	CrashRate             float64 `json:"crash_rate"`
-	AvgTimeBetweenRestart float64 `json:"avg_time_between_restart"`
-
-	// Ratios and derived (8 features)
-	CPUToMemoryRatio      float64 `json:"cpu_to_memory_ratio"`
-	NetworkToComputeRatio float64 `json:"network_to_compute_ratio"`
-	MemoryGrowthRate      float64 `json:"memory_growth_rate"`
-	CPUGrowthRate         float64 `json:"cpu_growth_rate"`
-	ResourceEfficiency    float64 `json:"resource_efficiency"`
-	HealthScore           float64 `json:"health_score"`
-	StabilityScore        float64 `json:"stability_score"`
-	PerformanceScore      float64 `json:"performance_score"`
-
-	// Time-based (5 features)
-	HourOfDay            float64 `json:"hour_of_day"`
-	DayOfWeek            float64 `json:"day_of_week"`
-	IsBusinessHours      float64 `json:"is_business_hours"`
-	TimeSinceLastRestart float64 `json:"time_since_last_restart"`
-	UptimeHours          float64 `json:"uptime_hours"`
+	CPUUsage            float64 `json:"cpu_usage"`              // CPU utilization percentage
+	MemoryUsage         float64 `json:"memory_usage"`           // Memory utilization percentage
+	DiskUsage           float64 `json:"disk_usage"`             // Disk usage percentage
+	NetworkBytesSec     float64 `json:"network_bytes_sec"`      // Network bytes per second
+	ErrorRate           float64 `json:"error_rate"`             // Network error rate
+	LatencyMs           float64 `json:"latency_ms"`             // Estimated latency in milliseconds
+	RestartCount        float64 `json:"restart_count"`          // Number of pod restarts
+	AgeMinutes          float64 `json:"age_minutes"`            // Pod age in minutes
+	CPUMemoryRatio      float64 `json:"cpu_memory_ratio"`       // CPU to memory utilization ratio
+	ResourcePressure    float64 `json:"resource_pressure"`      // Average of CPU and memory utilization
+	ErrorLatencyProduct float64 `json:"error_latency_product"`  // Error rate * latency (composite metric)
+	NetworkPerCPU       float64 `json:"network_per_cpu"`        // Network bytes per CPU unit
+	IsCritical          float64 `json:"is_critical"`            // Boolean flag for critical conditions
 }
 
 // MLPrediction represents the output of ML model prediction

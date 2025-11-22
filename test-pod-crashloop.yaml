@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-crashloop-pod
+  namespace: aura-test
+  labels:
+    app: test-crashloop
+    test-type: crash-anomaly
+spec:
+  containers:
+  - name: crashing-container
+    image: busybox:latest
+    command: ["sh", "-c", "exit 1"]  # Will exit immediately, causing restart loop
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  restartPolicy: Always
+

@@ -78,7 +78,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(confidence) as model_confidence\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(confidence) as model_confidence\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -162,7 +162,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  0.967 as accuracy\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  CASE\n    WHEN COUNT(*) > 0 THEN\n      ROUND(\n        CAST(\n          COUNT(*) FILTER (WHERE is_anomaly = 1 AND confidence > 0.5) * 100.0 / NULLIF(COUNT(*), 0)\n        AS NUMERIC), 3\n      ) / 100.0\n    ELSE 0.0\n  END as accuracy\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -244,7 +244,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COUNT(*) as ml_predictionscount\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COUNT(*) as ml_predictionscount\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -332,7 +332,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  CASE\n    WHEN model_version LIKE '%isolation_forest%' THEN 'Isolation Forest'\n    WHEN model_version LIKE '%lof%' THEN 'Local Outlier Factor'\n    WHEN model_version LIKE '%autoencoder%' THEN 'Autoencoder'\n    WHEN model_version LIKE '%lstm%' THEN 'LSTM'\n    WHEN model_version LIKE '%transformer%' THEN 'Transformer'\n    WHEN model_version LIKE '%prophet%' THEN 'Prophet'\n    WHEN model_version LIKE '%ensemble%' THEN 'Ensemble'\n    ELSE COALESCE(model_version, 'Other')\n  END as model,\n  COUNT(*) as detections\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\nGROUP BY model\nORDER BY detections DESC",
+          "rawSql": "SELECT\n  CASE\n    WHEN model_version IS NULL OR model_version = '' THEN 'Unknown'\n    WHEN LOWER(model_version) LIKE '%isolation%forest%' OR LOWER(model_version) LIKE '%isolation_forest%' THEN 'Isolation Forest'\n    WHEN LOWER(model_version) LIKE '%lof%' OR LOWER(model_version) LIKE '%local%outlier%' THEN 'Local Outlier Factor'\n    WHEN LOWER(model_version) LIKE '%autoencoder%' OR LOWER(model_version) LIKE '%auto_encoder%' THEN 'Autoencoder'\n    WHEN LOWER(model_version) LIKE '%lstm%' THEN 'LSTM'\n    WHEN LOWER(model_version) LIKE '%transformer%' THEN 'Transformer'\n    WHEN LOWER(model_version) LIKE '%prophet%' THEN 'Prophet'\n    WHEN LOWER(model_version) LIKE '%ensemble%' OR LOWER(model_version) LIKE '%combined%' THEN 'Ensemble'\n    WHEN LOWER(model_version) LIKE '%xgboost%' OR LOWER(model_version) LIKE '%xgb%' THEN 'XGBoost'\n    WHEN LOWER(model_version) LIKE '%random%forest%' OR LOWER(model_version) LIKE '%rf%' THEN 'Random Forest'\n    WHEN LOWER(model_version) LIKE '%gradient%boost%' OR LOWER(model_version) LIKE '%gb%' THEN 'Gradient Boosting'\n    WHEN LOWER(model_version) LIKE '%lightgbm%' OR LOWER(model_version) LIKE '%lgb%' THEN 'LightGBM'\n    ELSE COALESCE(model_version, 'Other')\n  END as model,\n  COUNT(*) as detections\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY model\nORDER BY detections DESC",
           "refId": "A",
           "select": [
             [
@@ -440,7 +440,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  AVG(confidence) as \"Average Confidence\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  AVG(confidence) as \"Average Confidence\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -546,7 +546,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('10 minutes', timestamp) as time,\n  anomaly_type,\n  COUNT(*) as count\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\nGROUP BY time, anomaly_type\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('10 minutes', timestamp) as time,\n  anomaly_type,\n  COUNT(*) as count\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time, anomaly_type\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -697,7 +697,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp,\n  pod_name,\n  namespace,\n  COALESCE(anomaly_type, 'unknown') as anomaly_type,\n  confidence,\n  COALESCE(model_version, 'ensemble') as model_version,\n  COALESCE(features::json->>'cpu_usage', '0') as cpu,\n  COALESCE(features::json->>'memory_usage', '0') as memory\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\nORDER BY timestamp DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  mp.timestamp,\n  mp.pod_name,\n  mp.namespace,\n  COALESCE(mp.anomaly_type, 'unknown') as anomaly_type,\n  mp.confidence,\n  COALESCE(mp.model_version, 'ensemble') as model_version,\n  COALESCE(\n    CASE\n      WHEN pm.cpu_usage_millicores > 0 THEN ROUND(pm.cpu_usage_millicores::numeric, 2)::text\n      WHEN mp.features::json->>'cpu_usage' IS NOT NULL THEN mp.features::json->>'cpu_usage'\n      ELSE '0'\n    END,\n    '0'\n  ) as cpu,\n  COALESCE(\n    CASE\n      WHEN pm.memory_usage_bytes > 0 THEN ROUND((pm.memory_usage_bytes / (1024*1024.0))::numeric, 2)::text || ' Mi'\n      WHEN mp.features::json->>'memory_usage' IS NOT NULL THEN mp.features::json->>'memory_usage'\n      ELSE '0'\n    END,\n    '0'\n  ) as memory\nFROM ml_predictions mp\nLEFT JOIN pod_metrics pm ON\n  mp.pod_name = pm.pod_name\n  AND mp.namespace = pm.namespace\n  AND ABS(EXTRACT(EPOCH FROM (mp.timestamp - pm.timestamp))) < 300\nWHERE $__timeFilter(mp.timestamp)\n  AND mp.namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nORDER BY mp.timestamp DESC\nLIMIT 100",
           "refId": "A",
           "select": [
             [
@@ -805,7 +805,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  AVG(CASE WHEN is_anomaly = 1 THEN 1.0 ELSE 0.0 END) as \"Anomaly Rate\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  AVG(CASE WHEN is_anomaly = 1 THEN 1.0 ELSE 0.0 END) as \"Anomaly Rate\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -849,7 +849,7 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-24h",
     "to": "now"
   },
   "timepicker": {},

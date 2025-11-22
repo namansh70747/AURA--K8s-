@@ -137,7 +137,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(COALESCE(cpu_utilization, 0)) as \"CPU Usage\",\n  AVG(COALESCE(memory_utilization, 0)) as \"Memory Usage\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(COALESCE(cpu_utilization, 0)) as \"CPU Usage\",\n  AVG(COALESCE(memory_utilization, 0)) as \"Memory Usage\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -276,7 +276,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(COALESCE(network_rx_bytes, 0)) as \"Network In\",\n  AVG(COALESCE(network_tx_bytes, 0)) as \"Network Out\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND network_rx_bytes IS NOT NULL\n  AND network_tx_bytes IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(COALESCE(network_rx_bytes, 0)) as \"Network In\",\n  AVG(COALESCE(network_tx_bytes, 0)) as \"Network Out\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (network_rx_bytes IS NOT NULL OR network_tx_bytes IS NOT NULL OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0 OR cpu_limit_millicores > 0 OR memory_limit_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -463,7 +463,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (pod_name)\n  pod_name,\n  namespace,\n  cpu_utilization,\n  memory_utilization,\n  timestamp\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nORDER BY pod_name, timestamp DESC\nLIMIT 50",
+          "rawSql": "SELECT DISTINCT ON (pod_name)\n  pod_name,\n  namespace,\n  COALESCE(cpu_utilization, 0) as cpu_utilization,\n  COALESCE(memory_utilization, 0) as memory_utilization,\n  timestamp\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_limit_millicores > 0 OR memory_limit_bytes > 0)\nORDER BY pod_name, timestamp DESC\nLIMIT 50",
           "refId": "A",
           "select": [
             [
@@ -551,7 +551,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  namespace,\n  AVG(COALESCE(cpu_utilization, 0)) as avg_cpu\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\nGROUP BY namespace\nORDER BY avg_cpu DESC",
+          "rawSql": "SELECT\n  namespace,\n  AVG(\n    CASE\n      WHEN cpu_utilization > 0 THEN cpu_utilization\n      WHEN cpu_limit_millicores > 0 AND cpu_usage_millicores > 0 THEN (cpu_usage_millicores / cpu_limit_millicores * 100.0)\n      ELSE 0\n    END\n  ) as avg_cpu\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_utilization IS NOT NULL OR cpu_limit_millicores > 0 OR cpu_usage_millicores > 0)\nGROUP BY namespace\nHAVING AVG(\n    CASE\n      WHEN cpu_utilization > 0 THEN cpu_utilization\n      WHEN cpu_limit_millicores > 0 AND cpu_usage_millicores > 0 THEN (cpu_usage_millicores / cpu_limit_millicores * 100.0)\n      ELSE 0\n    END\n  ) > 0\nORDER BY avg_cpu DESC",
           "refId": "A",
           "select": [
             [
@@ -658,7 +658,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('2 minutes', timestamp) as time,\n  AVG(COALESCE(restarts, 0)) as \"Average Restarts\",\n  MAX(COALESCE(restarts, 0)) as \"Max Restarts\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND restarts IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('2 minutes', timestamp) as time,\n  AVG(COALESCE(restarts, 0)) as \"Average Restarts\",\n  MAX(COALESCE(restarts, 0)) as \"Max Restarts\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (restarts IS NOT NULL OR restarts = 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -765,7 +765,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(COALESCE(disk_usage_bytes, 0)) as \"Disk Read\",\n  AVG(COALESCE(disk_limit_bytes, 0)) as \"Disk Write\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  AVG(COALESCE(disk_usage_bytes, 0)) as \"Disk Read\",\n  AVG(COALESCE(disk_limit_bytes - disk_usage_bytes, 0)) as \"Disk Write\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND disk_usage_bytes IS NOT NULL\n  AND disk_limit_bytes IS NOT NULL\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -878,7 +878,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  pod_name,\n  AVG(COALESCE(cpu_utilization, 0)) as value\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\nGROUP BY time, pod_name\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  pod_name,\n  AVG(\n    CASE\n      -- Use real CPU utilization or calculate from real usage/limits (no estimates)\n      WHEN cpu_utilization IS NOT NULL AND cpu_utilization >= 0 THEN cpu_utilization\n      WHEN cpu_limit_millicores > 0 AND cpu_usage_millicores > 0 THEN (cpu_usage_millicores / cpu_limit_millicores * 100.0)\n      WHEN cpu_limit_millicores > 0 AND cpu_usage_millicores = 0 THEN 0\n      ELSE 0\n    END\n  ) as value\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_utilization IS NOT NULL OR cpu_limit_millicores > 0 OR cpu_usage_millicores >= 0)\nGROUP BY time, pod_name\nORDER BY time, pod_name",
           "refId": "A",
           "select": [
             [
@@ -921,7 +921,7 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-24h",
     "to": "now"
   },
   "timepicker": {},

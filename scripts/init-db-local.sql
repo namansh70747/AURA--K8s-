@@ -2,26 +2,41 @@
 -- This script creates the necessary tables for local development
 
 -- Create time_bucket function for PostgreSQL (TimescaleDB compatibility)
-CREATE OR REPLACE FUNCTION time_bucket(bucket_width INTERVAL, ts TIMESTAMPTZ)
-RETURNS TIMESTAMPTZ AS $$
-DECLARE
-    bucket_seconds DOUBLE PRECISION;
-    epoch_seconds DOUBLE PRECISION;
-    bucket_number BIGINT;
+-- Only create if TimescaleDB extension is not available
+-- TimescaleDB provides this natively, so we only need it for pure PostgreSQL
+DO $$
 BEGIN
-    -- Convert bucket width to seconds
-    bucket_seconds := EXTRACT(EPOCH FROM bucket_width);
-    
-    -- Get timestamp as epoch seconds
-    epoch_seconds := EXTRACT(EPOCH FROM ts);
-    
-    -- Calculate which bucket this timestamp falls into
-    bucket_number := FLOOR(epoch_seconds / bucket_seconds);
-    
-    -- Return the start of the bucket
-    RETURN TO_TIMESTAMP(bucket_number * bucket_seconds);
-END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+    -- Check if TimescaleDB extension exists
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'
+    ) THEN
+        -- Create time_bucket function only if TimescaleDB is not available
+        CREATE OR REPLACE FUNCTION time_bucket(bucket_width INTERVAL, ts TIMESTAMPTZ)
+        RETURNS TIMESTAMPTZ AS $$
+        DECLARE
+            bucket_seconds DOUBLE PRECISION;
+            epoch_seconds DOUBLE PRECISION;
+            bucket_number BIGINT;
+        BEGIN
+            -- Convert bucket width to seconds
+            bucket_seconds := EXTRACT(EPOCH FROM bucket_width);
+            
+            -- Get timestamp as epoch seconds
+            epoch_seconds := EXTRACT(EPOCH FROM ts);
+            
+            -- Calculate which bucket this timestamp falls into
+            bucket_number := FLOOR(epoch_seconds / bucket_seconds);
+            
+            -- Return the start of the bucket
+            RETURN TO_TIMESTAMP(bucket_number * bucket_seconds);
+        END;
+        $$ LANGUAGE plpgsql IMMUTABLE;
+        
+        RAISE NOTICE 'Created time_bucket function for PostgreSQL compatibility';
+    ELSE
+        RAISE NOTICE 'TimescaleDB extension found - using native time_bucket function';
+    END IF;
+END $$;
 
 -- Pod metrics table
 DROP TABLE IF EXISTS pod_metrics CASCADE;
@@ -66,6 +81,24 @@ CREATE TABLE pod_metrics (
 CREATE INDEX idx_pod_metrics_timestamp ON pod_metrics(timestamp DESC);
 CREATE INDEX idx_pod_metrics_pod_namespace ON pod_metrics(pod_name, namespace);
 
+-- Convert to hypertable if TimescaleDB is available and table is empty
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM timescaledb_information.hypertables 
+            WHERE hypertable_name = 'pod_metrics'
+        ) THEN
+            IF (SELECT COUNT(*) FROM pod_metrics) = 0 THEN
+                PERFORM create_hypertable('pod_metrics', 'timestamp', if_not_exists => TRUE);
+                RAISE NOTICE 'Converted pod_metrics to hypertable';
+            ELSE
+                RAISE NOTICE 'pod_metrics has data, skipping hypertable conversion';
+            END IF;
+        END IF;
+    END IF;
+END $$;
+
 -- Node metrics table
 DROP TABLE IF EXISTS node_metrics CASCADE;
 CREATE TABLE node_metrics (
@@ -94,6 +127,24 @@ CREATE TABLE node_metrics (
 
 CREATE INDEX idx_node_metrics_timestamp ON node_metrics(timestamp DESC);
 CREATE INDEX idx_node_metrics_node ON node_metrics(node_name, timestamp DESC);
+
+-- Convert to hypertable if TimescaleDB is available and table is empty
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM timescaledb_information.hypertables 
+            WHERE hypertable_name = 'node_metrics'
+        ) THEN
+            IF (SELECT COUNT(*) FROM node_metrics) = 0 THEN
+                PERFORM create_hypertable('node_metrics', 'timestamp', if_not_exists => TRUE);
+                RAISE NOTICE 'Converted node_metrics to hypertable';
+            ELSE
+                RAISE NOTICE 'node_metrics has data, skipping hypertable conversion';
+            END IF;
+        END IF;
+    END IF;
+END $$;
 
 -- ML predictions table
 DROP TABLE IF EXISTS ml_predictions CASCADE;
@@ -130,6 +181,24 @@ CREATE TABLE ml_predictions (
 CREATE INDEX idx_ml_predictions_timestamp ON ml_predictions(timestamp DESC);
 CREATE INDEX idx_ml_predictions_pod ON ml_predictions(pod_name, namespace);
 CREATE INDEX idx_ml_predictions_issue ON ml_predictions(predicted_issue, timestamp DESC);
+
+-- Convert to hypertable if TimescaleDB is available and table is empty
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM timescaledb_information.hypertables 
+            WHERE hypertable_name = 'ml_predictions'
+        ) THEN
+            IF (SELECT COUNT(*) FROM ml_predictions) = 0 THEN
+                PERFORM create_hypertable('ml_predictions', 'timestamp', if_not_exists => TRUE);
+                RAISE NOTICE 'Converted ml_predictions to hypertable';
+            ELSE
+                RAISE NOTICE 'ml_predictions has data, skipping hypertable conversion';
+            END IF;
+        END IF;
+    END IF;
+END $$;
 
 -- Issues table (matching Go code schema)
 DROP TABLE IF EXISTS issues CASCADE;
@@ -169,7 +238,11 @@ CREATE TABLE remediations (
     -- Additional fields for dashboard compatibility
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
-    strategy TEXT
+    strategy TEXT,
+    -- New fields for enhanced AI remediation
+    confidence DOUBLE PRECISION,
+    risk_level TEXT,
+    plan_details JSONB
 );
 
 CREATE INDEX idx_remediations_issue ON remediations(issue_id);
@@ -225,6 +298,68 @@ SELECT
     has_high_cpu,
     has_network_issues
 FROM pod_metrics;
+
+-- Cost savings table for tracking optimization benefits
+DROP TABLE IF EXISTS cost_savings CASCADE;
+CREATE TABLE cost_savings (
+    id BIGSERIAL PRIMARY KEY,
+    pod_name TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    issue_type TEXT NOT NULL,
+    original_cost_per_hour DOUBLE PRECISION,
+    optimized_cost_per_hour DOUBLE PRECISION,
+    savings_per_hour DOUBLE PRECISION,
+    estimated_monthly_savings DOUBLE PRECISION,
+    confidence DOUBLE PRECISION,
+    optimization_type TEXT,
+    description TEXT,
+    UNIQUE (pod_name, namespace, timestamp, issue_type)
+);
+
+-- Optimization actions table for tracking what optimizations were applied
+DROP TABLE IF EXISTS optimization_actions CASCADE;
+CREATE TABLE optimization_actions (
+    id BIGSERIAL PRIMARY KEY,
+    pod_name TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    action_type TEXT NOT NULL,
+    action_details TEXT,
+    estimated_savings DOUBLE PRECISION,
+    confidence DOUBLE PRECISION,
+    status TEXT DEFAULT 'applied',
+    applied_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (pod_name, namespace, timestamp, action_type)
+);
+
+-- Remediation actions table for tracking remediation attempts and outcomes
+DROP TABLE IF EXISTS remediation_actions CASCADE;
+CREATE TABLE remediation_actions (
+    id BIGSERIAL PRIMARY KEY,
+    issue_id TEXT,
+    pod_name TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    action_type TEXT NOT NULL,
+    action_details TEXT,
+    success BOOLEAN NOT NULL DEFAULT FALSE,
+    error_message TEXT,
+    execution_time_seconds INTEGER,
+    ai_recommendation TEXT,
+    strategy_used TEXT,
+    confidence DOUBLE PRECISION,
+    status TEXT DEFAULT 'attempted'
+);
+
+-- Create indexes for performance
+CREATE INDEX idx_cost_savings_timestamp ON cost_savings(timestamp DESC);
+CREATE INDEX idx_cost_savings_pod ON cost_savings(pod_name, namespace);
+CREATE INDEX idx_optimization_actions_timestamp ON optimization_actions(timestamp DESC);
+CREATE INDEX idx_optimization_actions_pod ON optimization_actions(pod_name, namespace);
+CREATE INDEX idx_remediation_actions_timestamp ON remediation_actions(timestamp DESC);
+CREATE INDEX idx_remediation_actions_pod ON remediation_actions(pod_name, namespace);
+CREATE INDEX idx_remediation_actions_issue ON remediation_actions(issue_id);
 
 -- Create predictions view for Grafana compatibility
 CREATE OR REPLACE VIEW predictions AS 

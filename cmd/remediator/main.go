@@ -1,97 +1,151 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/namansh70747/aura-k8s/pkg/k8s"
 	"github.com/namansh70747/aura-k8s/pkg/metrics"
+	"github.com/namansh70747/aura-k8s/pkg/remediation"
 	"github.com/namansh70747/aura-k8s/pkg/storage"
 	"github.com/namansh70747/aura-k8s/pkg/utils"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/time/rate"
 )
-
-var (
-	// Prometheus metrics
-	remediationsTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "aura_remediator_remediations_total",
-		Help: "Total number of remediations attempted",
-	})
-	remediationSuccess = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "aura_remediator_remediations_success_total",
-		Help: "Total number of successful remediations",
-	})
-	remediationErrors = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "aura_remediator_remediations_errors_total",
-		Help: "Total number of remediation errors",
-	})
-	issuesProcessed = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "aura_remediator_issues_processed",
-		Help: "Number of issues processed in last cycle",
-	})
-)
-
-type AIRecommendation struct {
-	Action        string  `json:"action"`
-	ActionDetails string  `json:"action_details"`
-	Reasoning     string  `json:"reasoning"`
-	Confidence    float64 `json:"confidence"`
-}
 
 func main() {
 	utils.Log.Info("Starting AURA K8s Remediator")
+	
+	// Setup file logging with rotation if configured
+	if logDir := os.Getenv("LOG_DIR"); logDir != "" {
+		maxSizeMB := 100
+		if val := os.Getenv("LOG_MAX_SIZE_MB"); val != "" {
+			if size, err := strconv.Atoi(val); err == nil && size > 0 {
+				maxSizeMB = size
+			}
+		}
+		maxAgeDays := 7
+		if val := os.Getenv("LOG_MAX_AGE_DAYS"); val != "" {
+			if age, err := strconv.Atoi(val); err == nil && age > 0 {
+				maxAgeDays = age
+			}
+		}
+		maxBackups := 5
+		if val := os.Getenv("LOG_MAX_BACKUPS"); val != "" {
+			if backups, err := strconv.Atoi(val); err == nil && backups > 0 {
+				maxBackups = backups
+			}
+		}
+		compress := os.Getenv("LOG_COMPRESS") != "false"
+		cleanup := utils.SetupFileLogging(logDir, "remediator", maxSizeMB, maxAgeDays, maxBackups, compress)
+		defer cleanup()
+	}
 
-	// Get configuration
-	dbURL := getEnv("DATABASE_URL", "postgres://aura:aura_password@localhost:5432/aura_metrics?sslmode=disable")
-	mcpURL := getEnv("MCP_SERVER_URL", "http://mcp-server:8000")
+	// Get configuration from environment - fail-fast in production if not set
+	env := getEnv("ENVIRONMENT", "development")
+	dbURL := getEnv("DATABASE_URL", "")
+	if dbURL == "" {
+		if env == "production" {
+			utils.Log.Fatal("DATABASE_URL environment variable is required in production")
+		}
+		// Use default only in development - standardize connection string format
+		// Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues
+		dbURL = "postgresql://aura:aura_password@127.0.0.1:5432/aura_metrics?sslmode=disable"
+		utils.Log.Warn("Using default DATABASE_URL (development only)")
+	}
+	mcpURL := getEnv("MCP_SERVER_URL", "http://localhost:8000")
 	interval := getEnvDuration("REMEDIATION_INTERVAL", 30*time.Second)
 	metricsPort := getEnv("METRICS_PORT", "9091")
 
-	// Initialize K8s client
+	// Initialize Kubernetes client
 	k8sClient, err := k8s.NewClient()
 	if err != nil {
-		utils.Log.WithError(err).Fatal("Failed to create Kubernetes client")
+		utils.Log.WithError(err).Fatal("Failed to initialize Kubernetes client")
 	}
-
-	// Initialize database
-	db, err := storage.NewPostgresDB(dbURL)
+	utils.Log.Info("Kubernetes client initialized")
+	
+	// Initialize database connection
+	postgresDB, err := storage.NewPostgresDB(dbURL)
 	if err != nil {
 		utils.Log.WithError(err).Fatal("Failed to connect to database")
 	}
-	defer db.Close()
+	defer postgresDB.Close()
 
-	// Initialize rate limiter (10 remediations per second, burst of 5)
-	limiter := rate.NewLimiter(rate.Limit(10), 5)
-	utils.Log.Info("Rate limiter initialized: 10 ops/sec with burst of 5")
+	// Initialize schema
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Start Prometheus metrics server
+	if err := postgresDB.InitSchema(ctx); err != nil {
+		utils.Log.WithError(err).Fatal("Failed to initialize database schema")
+	}
+
+	// Initialize remediator
+	remediator := remediation.NewRemediator(k8sClient, postgresDB, mcpURL)
+	
+	// Enable dry-run mode if configured
+	if getEnv("DRY_RUN", "false") == "true" {
+		remediator.SetDryRun(true)
+		utils.Log.Info("⚠️  DRY-RUN MODE ENABLED - No actual changes will be made")
+	}
+
+	// Start health and metrics server
 	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
+		mux := http.NewServeMux()
+		
+		// Health check endpoint with dependency validation
+		mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			// Deep health check
+			healthy := true
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			
+			// Check database connection
+			if err := postgresDB.Ping(ctx); err != nil {
+				healthy = false
+			}
+			
+			// Test K8s client
+			if _, err := k8sClient.ListPods(ctx, ""); err != nil {
+				healthy = false
+			}
+			
+			// Check MCP server (if configured)
+			if mcpURL != "" {
+				mcpClient := &http.Client{Timeout: 5 * time.Second}
+				resp, err := mcpClient.Get(mcpURL + "/health")
+				if err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
+					healthy = false
+				}
+				if resp != nil {
+					resp.Body.Close()
+				}
+			}
+			
+			if healthy {
+				metrics.SetServiceHealth("remediator", true)
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			} else {
+				metrics.SetServiceHealth("remediator", false)
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte("UNHEALTHY"))
+			}
 		})
-		utils.Log.Infof("Starting metrics server on :%s", metricsPort)
-		if err := http.ListenAndServe(":"+metricsPort, nil); err != nil {
-			utils.Log.WithError(err).Error("Metrics server failed")
+		
+		// Prometheus metrics endpoint
+		mux.Handle("/metrics", promhttp.Handler())
+		
+		utils.Log.Infof("Starting health and metrics server on :%s", metricsPort)
+		if err := http.ListenAndServe(":"+metricsPort, mux); err != nil {
+			utils.Log.WithError(err).Error("Health server failed")
 		}
 	}()
 
 	// Setup graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -101,271 +155,55 @@ func main() {
 
 	utils.Log.Infof("Remediation started with interval: %s", interval)
 
+	// Process immediately on startup
+	if err := remediator.ProcessRemediations(ctx); err != nil {
+		utils.Log.WithError(err).Error("Initial remediation failed")
+	}
+
+	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			if err := processIssues(ctx, k8sClient, db, mcpURL, limiter); err != nil {
-				utils.Log.WithError(err).Error("Remediation cycle failed")
+			start := time.Now()
+
+			if err := remediator.ProcessRemediations(ctx); err != nil {
+				utils.Log.WithError(err).Error("Remediation failed")
+				metrics.RemediationsTotal.WithLabelValues("failed").Inc()
+				metrics.SetServiceHealth("remediator", false)
+			} else {
+				duration := time.Since(start)
+				metrics.RecordRemediationDuration(duration)
+				metrics.RemediationsTotal.WithLabelValues("success").Inc()
+				utils.Log.Infof("Remediation completed in %.2fs", duration.Seconds())
+				metrics.SetServiceHealth("remediator", true)
 			}
 
 		case <-stop:
 			utils.Log.Info("Shutting down remediator gracefully...")
-			cancel()
-			db.Close()
+			cancel() // Cancel context to stop ongoing operations
+			
+			// Create shutdown timeout context
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer shutdownCancel()
+			
+			// Close database with timeout
+			done := make(chan error, 1)
+			go func() {
+				done <- postgresDB.Close()
+			}()
+			
+			select {
+			case err := <-done:
+				if err != nil {
+					utils.Log.WithError(err).Error("Error closing database")
+				}
+			case <-shutdownCtx.Done():
+				utils.Log.Warn("Shutdown timeout reached, forcing exit")
+			}
+			
 			utils.Log.Info("Remediator stopped")
 			return
 		}
-	}
-}
-
-func processIssues(ctx context.Context, k8sClient *k8s.Client, db *storage.PostgresDB, mcpURL string, limiter *rate.Limiter) error {
-	issues, err := db.GetOpenIssues(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get open issues: %w", err)
-	}
-
-	utils.Log.Infof("Processing %d open issues", len(issues))
-	issuesProcessed.Set(float64(len(issues)))
-
-	for _, issue := range issues {
-		// Rate limit API calls to prevent overwhelming K8s API
-		if err := limiter.Wait(ctx); err != nil {
-			utils.Log.WithError(err).Error("Rate limiter error")
-			continue
-		}
-
-		remediationsTotal.Inc()
-		if err := remediateIssue(ctx, k8sClient, db, mcpURL, issue); err != nil {
-			utils.Log.WithError(err).WithField("issue_id", issue.ID).Error("Failed to remediate issue")
-			remediationErrors.Inc()
-		} else {
-			remediationSuccess.Inc()
-		}
-	}
-
-	return nil
-}
-
-func remediateIssue(ctx context.Context, k8sClient *k8s.Client, db *storage.PostgresDB, mcpURL string, issue *metrics.Issue) error {
-	utils.Log.WithField("issue_id", issue.ID).WithField("type", issue.IssueType).Info("Remediating issue")
-
-	startTime := time.Now()
-
-	// Get AI recommendation
-	recommendation, err := getAIRecommendation(mcpURL, issue)
-	if err != nil {
-		utils.Log.WithError(err).Warn("Failed to get AI recommendation, using fallback")
-		recommendation = getFallbackRecommendation(issue)
-	}
-
-	// Execute remediation
-	success, errorMsg := executeRemediation(ctx, k8sClient, issue, recommendation)
-
-	// Calculate completion time
-	endTime := time.Now()
-	var completedAt *time.Time
-	if success {
-		completedAt = &endTime
-	}
-
-	// Save remediation record
-	remediation := &metrics.Remediation{
-		ID:               uuid.New().String(),
-		IssueID:          issue.ID,
-		PodName:          issue.PodName,
-		Namespace:        issue.Namespace,
-		Action:           recommendation.Action,
-		ActionDetails:    recommendation.ActionDetails,
-		ExecutedAt:       startTime,
-		Success:          success,
-		ErrorMessage:     errorMsg,
-		AIRecommendation: recommendation.Reasoning,
-		TimeToResolve:    int(time.Since(startTime).Seconds()),
-		Strategy:         recommendation.Action,
-		CompletedAt:      completedAt,
-		Timestamp:        startTime,
-	}
-
-	if err := db.SaveRemediation(ctx, remediation); err != nil {
-		return fmt.Errorf("failed to save remediation: %w", err)
-	}
-
-	// Update issue status
-	if success {
-		now := time.Now()
-		issue.ResolvedAt = &now
-		issue.Status = "resolved"
-	} else {
-		issue.Status = "in_progress"
-	}
-
-	// Update issue in database using direct SQL since SaveIssue expects new inserts
-	query := `UPDATE issues SET status = $1, resolved_at = $2 WHERE id = $3`
-	_, err = db.ExecRaw(ctx, query, issue.Status, issue.ResolvedAt, issue.ID)
-	if err != nil {
-		return fmt.Errorf("failed to update issue: %w", err)
-	}
-
-	return nil
-}
-
-func getAIRecommendation(mcpURL string, issue *metrics.Issue) (*AIRecommendation, error) {
-	reqBody := map[string]interface{}{
-		"issue_id":    issue.ID,
-		"pod_name":    issue.PodName,
-		"namespace":   issue.Namespace,
-		"issue_type":  issue.IssueType,
-		"severity":    issue.Severity,
-		"description": issue.Description,
-	}
-
-	jsonData, _ := json.Marshal(reqBody)
-	resp, err := http.Post(mcpURL+"/analyze", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("MCP server returned status: %d", resp.StatusCode)
-	}
-
-	var recommendation AIRecommendation
-	if err := json.NewDecoder(resp.Body).Decode(&recommendation); err != nil {
-		return nil, err
-	}
-
-	return &recommendation, nil
-}
-
-func getFallbackRecommendation(issue *metrics.Issue) *AIRecommendation {
-	rec := &AIRecommendation{
-		Confidence: 0.7,
-		Reasoning:  "Fallback recommendation based on issue type",
-	}
-
-	// Map issue types to remediation actions
-	switch issue.IssueType {
-	case "OOMKilled", "oom_killed", "high_memory":
-		rec.Action = "increase_memory"
-		rec.ActionDetails = "Increase memory limit by 50% for the pod"
-
-	case "CrashLoopBackOff", "crash_loop":
-		rec.Action = "restart_pod"
-		rec.ActionDetails = "Restart pod to recover from crash loop"
-
-	case "HighCPU", "high_cpu", "cpu_spike":
-		rec.Action = "scale_deployment"
-		rec.ActionDetails = "Scale deployment horizontally to handle CPU load"
-
-	case "DiskPressure", "disk_pressure", "disk_full":
-		rec.Action = "clean_logs"
-		rec.ActionDetails = "Clean up logs and temporary files"
-
-	case "NetworkErrors", "network_errors", "network_latency":
-		rec.Action = "restart_pod"
-		rec.ActionDetails = "Restart pod to reset network state"
-
-	case "ImagePullBackOff", "image_pull_backoff":
-		rec.Action = "restart_pod"
-		rec.ActionDetails = "Retry image pull by restarting pod"
-
-	case "DNSFailures", "dns_failures":
-		rec.Action = "restart_pod"
-		rec.ActionDetails = "Restart pod to reset DNS cache"
-
-	case "PVCPending", "pvc_pending":
-		rec.Action = "expand_pvc"
-		rec.ActionDetails = "Expand PersistentVolumeClaim or check storage"
-
-	case "NodeNotReady", "node_not_ready":
-		rec.Action = "drain_node"
-		rec.ActionDetails = "Pod will be rescheduled to healthy node"
-
-	default:
-		rec.Action = "restart_pod"
-		rec.ActionDetails = "Generic restart to recover from issue"
-	}
-
-	return rec
-}
-
-func executeRemediation(ctx context.Context, k8sClient *k8s.Client, issue *metrics.Issue, rec *AIRecommendation) (bool, string) {
-	utils.Log.WithField("action", rec.Action).Info("Executing remediation action")
-
-	switch rec.Action {
-	case "restart_pod":
-		err := k8sClient.RestartPod(ctx, issue.Namespace, issue.PodName)
-		if err != nil {
-			return false, fmt.Sprintf("failed to restart pod: %v", err)
-		}
-		return true, ""
-
-	case "increase_memory":
-		pod, err := k8sClient.GetPod(ctx, issue.Namespace, issue.PodName)
-		if err != nil {
-			return false, fmt.Sprintf("failed to get pod: %v", err)
-		}
-		if len(pod.Spec.Containers) == 0 {
-			return false, "pod has no containers"
-		}
-		containerName := pod.Spec.Containers[0].Name
-		err = k8sClient.UpdatePodResourceLimits(ctx, issue.Namespace, issue.PodName, containerName, "", "4Gi")
-		if err != nil {
-			return false, fmt.Sprintf("failed to update memory: %v", err)
-		}
-		return true, ""
-
-	case "increase_cpu":
-		pod, err := k8sClient.GetPod(ctx, issue.Namespace, issue.PodName)
-		if err != nil {
-			return false, fmt.Sprintf("failed to get pod: %v", err)
-		}
-		if len(pod.Spec.Containers) == 0 {
-			return false, "pod has no containers"
-		}
-		containerName := pod.Spec.Containers[0].Name
-		err = k8sClient.UpdatePodResourceLimits(ctx, issue.Namespace, issue.PodName, containerName, "2000m", "")
-		if err != nil {
-			return false, fmt.Sprintf("failed to update cpu: %v", err)
-		}
-		return true, ""
-
-	case "scale_deployment":
-		deployment, err := k8sClient.GetDeploymentForPod(ctx, issue.Namespace, issue.PodName)
-		if err != nil {
-			return false, fmt.Sprintf("failed to get deployment: %v", err)
-		}
-		newReplicas := *deployment.Spec.Replicas + 1
-		err = k8sClient.ScaleDeployment(ctx, issue.Namespace, deployment.Name, newReplicas)
-		if err != nil {
-			return false, fmt.Sprintf("failed to scale deployment: %v", err)
-		}
-		return true, ""
-
-	case "clean_logs":
-		// Delete pod to trigger cleanup and restart
-		err := k8sClient.RestartPod(ctx, issue.Namespace, issue.PodName)
-		if err != nil {
-			return false, fmt.Sprintf("failed to clean logs: %v", err)
-		}
-		return true, ""
-
-	case "expand_pvc":
-		// Log that manual intervention is needed
-		utils.Log.WithField("pod", issue.PodName).Warn("PVC expansion needed - requires manual intervention")
-		return false, "PVC expansion requires manual intervention"
-
-	case "drain_node":
-		// Delete pod so it reschedules on healthy node
-		err := k8sClient.RestartPod(ctx, issue.Namespace, issue.PodName)
-		if err != nil {
-			return false, fmt.Sprintf("failed to reschedule pod: %v", err)
-		}
-		return true, ""
-
-	default:
-		return false, fmt.Sprintf("unknown action: %s", rec.Action)
 	}
 }
 

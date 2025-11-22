@@ -70,7 +70,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  SUM(\n    CASE\n      WHEN namespace = 'aura-k8s' THEN 0\n      ELSE (COALESCE(cpu_utilization, 0) / 100.0 * 0.031 + COALESCE(memory_utilization, 0) / 100.0 * 0.0035) * 24\n    END\n  ) as estimated_daily_cost\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  SUM(\n    CASE\n      -- Only use REAL limits for cost calculation (no estimates)\n      WHEN cpu_limit_millicores > 0 AND memory_limit_bytes > 0 THEN\n        ((COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_limit_millicores > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_limit_bytes > 0 THEN\n        (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      -- If no limits but we have real usage, calculate cost from actual usage (real values only)\n      WHEN cpu_usage_millicores > 0 AND memory_usage_bytes > 0 THEN\n        ((COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_usage_millicores > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_usage_bytes > 0 THEN\n        (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      ELSE 0\n    END\n  ) as daily_cost\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -152,7 +152,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 day', executed_at) as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as total_savings\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 day', executed_at) as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as total_savings\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -240,7 +240,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  AVG(\n    (COALESCE(cpu_utilization, 0) + COALESCE(memory_utilization, 0)) / 2.0\n  ) as resource_efficiency\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  AVG(\n    CASE\n      WHEN cpu_utilization > 0 OR memory_utilization > 0 THEN\n        (COALESCE(cpu_utilization, 0) + COALESCE(memory_utilization, 0)) / 2.0\n      WHEN cpu_limit_millicores > 0 AND cpu_usage_millicores > 0 THEN\n        (cpu_usage_millicores / cpu_limit_millicores * 100.0 + COALESCE(memory_utilization, 0)) / 2.0\n      WHEN memory_limit_bytes > 0 AND memory_usage_bytes > 0 THEN\n        (COALESCE(cpu_utilization, 0) + (memory_usage_bytes::float / memory_limit_bytes * 100.0)) / 2.0\n      ELSE 0\n    END\n  ) as resource_efficiency\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -322,7 +322,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  COUNT(*) as optimization_count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources', 'rightsizing')\n  AND success = true\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', executed_at) as time,\n  COUNT(*) as optimization_count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources', 'rightsizing')\n  AND success = true\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -429,7 +429,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  SUM(\n    (COALESCE(cpu_utilization, 0) / 100.0 * 0.031 + COALESCE(memory_utilization, 0) / 100.0 * 0.0035)\n  ) as \"Hourly Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  SUM(\n    CASE\n      -- Only use REAL limits for cost calculation (no estimates)\n      WHEN cpu_limit_millicores > 0 AND memory_limit_bytes > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      WHEN cpu_limit_millicores > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031)\n      WHEN memory_limit_bytes > 0 THEN\n        (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      -- If no limits but we have real usage, calculate cost from actual usage (real values only)\n      WHEN cpu_usage_millicores > 0 AND memory_usage_bytes > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      WHEN cpu_usage_millicores > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031)\n      WHEN memory_usage_bytes > 0 THEN\n        (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      ELSE 0\n    END\n  ) as \"Hourly Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -517,7 +517,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  namespace,\n  SUM(\n    (COALESCE(cpu_utilization, 0) / 100.0 * 0.031 + COALESCE(memory_utilization, 0) / 100.0 * 0.0035) * 24\n  ) as daily_cost\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nGROUP BY namespace\nORDER BY daily_cost DESC",
+          "rawSql": "SELECT\n  namespace,\n  SUM(\n    CASE\n      -- Only use REAL limits for cost calculation (no estimates)\n      WHEN cpu_limit_millicores > 0 AND memory_limit_bytes > 0 THEN\n        ((COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_limit_millicores > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_limit_bytes > 0 THEN\n        (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      -- If no limits but we have real usage, calculate cost from actual usage (real values only)\n      WHEN cpu_usage_millicores > 0 AND memory_usage_bytes > 0 THEN\n        ((COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_usage_millicores > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_usage_bytes > 0 THEN\n        (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      ELSE 0\n    END\n  ) as daily_cost\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY namespace\nORDER BY daily_cost DESC",
           "refId": "A",
           "select": [
             [
@@ -692,7 +692,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "WITH pod_avg AS (\n  SELECT\n    pod_name,\n    namespace,\n    AVG(COALESCE(cpu_utilization, 0)) as avg_cpu,\n    AVG(COALESCE(memory_utilization, 0)) as avg_memory\n  FROM pod_metrics\n  WHERE $__timeFilter(timestamp)\n    AND cpu_utilization IS NOT NULL\n    AND memory_utilization IS NOT NULL\n  GROUP BY pod_name, namespace\n)\nSELECT\n  pod_name,\n  namespace,\n  avg_cpu,\n  avg_memory,\n  CASE\n    WHEN avg_cpu < 20 AND avg_memory < 20 THEN 80\n    WHEN avg_cpu < 40 AND avg_memory < 40 THEN 50\n    WHEN avg_cpu < 60 AND avg_memory < 60 THEN 30\n    ELSE 10\n  END as waste_percentage,\n  CASE\n    WHEN avg_cpu < 20 AND avg_memory < 20 THEN 'Consider scaling down or removing'\n    WHEN avg_cpu < 40 AND avg_memory < 40 THEN 'Reduce resource limits'\n    WHEN avg_cpu < 60 AND avg_memory < 60 THEN 'Minor optimization possible'\n    ELSE 'Well utilized'\n  END as recommendation\nFROM pod_avg\nORDER BY waste_percentage DESC\nLIMIT 50",
+          "rawSql": "WITH pod_avg AS (\n  SELECT\n    pod_name,\n    namespace,\n    AVG(COALESCE(cpu_utilization, 0)) as avg_cpu,\n    AVG(COALESCE(memory_utilization, 0)) as avg_memory,\n    MAX(cpu_limit_millicores) as max_cpu_limit,\n    MAX(memory_limit_bytes) as max_memory_limit\n  FROM pod_metrics\n  WHERE $__timeFilter(timestamp)\n    AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n    AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_limit_millicores > 0 OR memory_limit_bytes > 0)\n  GROUP BY pod_name, namespace\n)\nSELECT\n  pod_name,\n  namespace,\n  avg_cpu,\n  avg_memory,\n  CASE\n    WHEN max_cpu_limit = 0 AND max_memory_limit = 0 THEN 0\n    WHEN avg_cpu = 0 AND avg_memory = 0 AND max_cpu_limit = 0 AND max_memory_limit = 0 THEN 0\n    WHEN avg_cpu < 20 AND avg_memory < 20 AND (max_cpu_limit > 0 OR max_memory_limit > 0) THEN 80\n    WHEN avg_cpu < 40 AND avg_memory < 40 AND (max_cpu_limit > 0 OR max_memory_limit > 0) THEN 50\n    WHEN avg_cpu < 60 AND avg_memory < 60 AND (max_cpu_limit > 0 OR max_memory_limit > 0) THEN 30\n    ELSE 10\n  END as waste_percentage,\n  CASE\n    WHEN max_cpu_limit = 0 AND max_memory_limit = 0 THEN 'No resource limits set - add limits for accurate analysis'\n    WHEN avg_cpu = 0 AND avg_memory = 0 AND (max_cpu_limit > 0 OR max_memory_limit > 0) THEN 'Pod not using resources - check if pod is running'\n    WHEN avg_cpu < 20 AND avg_memory < 20 THEN 'Consider scaling down or removing'\n    WHEN avg_cpu < 40 AND avg_memory < 40 THEN 'Reduce resource limits'\n    WHEN avg_cpu < 60 AND avg_memory < 60 THEN 'Minor optimization possible'\n    ELSE 'Well utilized'\n  END as recommendation\nFROM pod_avg\nORDER BY waste_percentage DESC\nLIMIT 50",
           "refId": "A",
           "select": [
             [
@@ -829,7 +829,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  SUM(COALESCE(cpu_utilization, 0) / 100.0 * 0.031) as \"CPU Cost\",\n  SUM(COALESCE(memory_utilization, 0) / 100.0 * 0.0035) as \"Memory Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 hour', timestamp) as time,\n  SUM(\n    CASE\n      -- Only use REAL limits or real usage (no estimates)\n      WHEN cpu_limit_millicores > 0 THEN COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031\n      WHEN cpu_usage_millicores > 0 THEN COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031\n      ELSE 0\n    END\n  ) as \"CPU Cost\",\n  SUM(\n    CASE\n      WHEN memory_limit_bytes > 0 THEN COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035\n      WHEN memory_usage_bytes > 0 THEN COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035\n      ELSE 0\n    END\n  ) as \"Memory Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -952,7 +952,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 day', COALESCE(timestamp, executed_at)) as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as \"Savings\"\nFROM remediations\nWHERE $__timeFilter(COALESCE(timestamp, executed_at))\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 day', COALESCE(timestamp, executed_at)) as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as \"Savings\"\nFROM remediations\nWHERE $__timeFilter(COALESCE(timestamp, executed_at))\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -995,7 +995,7 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-24h",
     "to": "now"
   },
   "timepicker": {},

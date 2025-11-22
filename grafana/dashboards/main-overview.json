@@ -78,7 +78,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  100.0 - (COUNT(*) FILTER (WHERE is_anomaly = 1) * 100.0 / NULLIF(COUNT(*), 0)) as health_score\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN 100.0\n    ELSE GREATEST(0.0, 100.0 - (COUNT(*) FILTER (WHERE is_anomaly = 1) * 100.0 / NULLIF(COUNT(*), 0)))\n  END as health_score\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -165,7 +165,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COALESCE(anomaly_type, 'unknown') as anomaly_type,\n  COUNT(*) as count\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\nGROUP BY anomaly_type\nORDER BY count DESC\nLIMIT 10",
+          "rawSql": "SELECT\n  COALESCE(anomaly_type, 'unknown') as anomaly_type,\n  COUNT(*) as count\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY anomaly_type\nORDER BY count DESC\nLIMIT 10",
           "refId": "A",
           "select": [
             [
@@ -272,7 +272,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  AVG(COALESCE(cpu_utilization, 0)) as \"CPU Usage\",\n  AVG(COALESCE(memory_utilization, 0)) as \"Memory Usage\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND cpu_utilization IS NOT NULL\n  AND memory_utilization IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) as time,\n  AVG(COALESCE(cpu_utilization, 0)) as \"CPU Usage\",\n  AVG(COALESCE(memory_utilization, 0)) as \"Memory Usage\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\n  AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0 OR cpu_limit_millicores > 0 OR memory_limit_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -391,7 +391,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp,\n  pod_name,\n  namespace,\n  COALESCE(anomaly_type, 'unknown') as anomaly_type,\n  confidence,\n  CASE WHEN COALESCE((SELECT COUNT(*) FROM remediations r WHERE r.pod_name = ml_predictions.pod_name AND r.executed_at > ml_predictions.timestamp LIMIT 1), 0) > 0 THEN 'Yes' ELSE 'No' END as remediated\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\nORDER BY timestamp DESC\nLIMIT 20",
+          "rawSql": "SELECT\n  mp.timestamp,\n  mp.pod_name,\n  mp.namespace,\n  COALESCE(mp.anomaly_type, 'unknown') as anomaly_type,\n  mp.confidence,\n  CASE WHEN r.id IS NOT NULL THEN 'Yes' ELSE 'No' END as remediated\nFROM ml_predictions mp\nLEFT JOIN LATERAL (\n  SELECT id\n  FROM remediations r\n  WHERE r.pod_name = mp.pod_name\n    AND r.namespace = mp.namespace\n    AND r.executed_at > mp.timestamp\n    AND r.success = true\n  ORDER BY r.executed_at ASC\n  LIMIT 1\n) r ON true\nWHERE $__timeFilter(mp.timestamp)\n  AND mp.is_anomaly = 1\n  AND mp.namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nORDER BY mp.timestamp DESC\nLIMIT 20",
           "refId": "A",
           "select": [
             [
@@ -481,7 +481,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  (COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)) as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN NULL\n    ELSE (COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0))\n  END as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -587,7 +587,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('10 minutes', timestamp) as time,\n  COUNT(*) FILTER (WHERE is_anomaly = 1) as \"Anomalies Detected\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  time_bucket('10 minutes', timestamp) as time,\n  COUNT(*) FILTER (WHERE is_anomaly = 1) as \"Anomalies Detected\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -630,7 +630,7 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-24h",
     "to": "now"
   },
   "timepicker": {},

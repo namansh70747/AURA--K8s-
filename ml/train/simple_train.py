@@ -294,19 +294,46 @@ for name, model in models.items():
 print("\n🎯 Step 7: Creating weighted ensemble...")
 
 class SimpleEnsemble:
-    """Simple voting ensemble"""
+    """Weighted voting ensemble"""
     def __init__(self, models, weights):
         self.models = models
         self.weights = weights
+        # Normalize weights to sum to 1.0
+        total_weight = sum(weights.values())
+        if total_weight > 0:
+            self.weights = {k: v / total_weight for k, v in weights.items()}
+        else:
+            # Equal weights if no weights provided
+            self.weights = {k: 1.0 / len(models) for k in models.keys()}
     
     def predict(self, X):
-        predictions = []
+        """Weighted voting ensemble prediction"""
+        if not self.models:
+            raise ValueError("No models in ensemble")
+        
+        # Get predictions from all models
+        predictions = {}
         for name, model in self.models.items():
             pred = model.predict(X)
-            predictions.append(pred)
+            predictions[name] = pred
         
-        # Weighted voting (simplified - just use the best model)
-        return self.models['xgboost'].predict(X)
+        # Weighted voting: for each sample, count votes weighted by model weight
+        n_samples = len(predictions[list(predictions.keys())[0]])
+        n_classes = len(np.unique(predictions[list(predictions.keys())[0]]))
+        
+        # Initialize weighted vote counts
+        weighted_votes = np.zeros((n_samples, n_classes))
+        
+        for name, pred in predictions.items():
+            weight = self.weights.get(name, 0.0)
+            if weight > 0:
+                # Add weighted votes for each class
+                for i, class_label in enumerate(pred):
+                    weighted_votes[i, class_label] += weight
+        
+        # Return class with highest weighted vote count
+        ensemble_pred = np.argmax(weighted_votes, axis=1)
+        return ensemble_pred
 
 ensemble = SimpleEnsemble(models, {'xgboost': 0.4, 'lightgbm': 0.3, 'random_forest': 0.2, 'gradient_boosting': 0.1})
 ensemble_pred = ensemble.predict(X_test_scaled)

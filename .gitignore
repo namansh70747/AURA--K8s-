@@ -1,56 +1,29 @@
-# Binaries
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+ENV/
+env/
+
+# Go
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-bin/
-dist/
-
-# Go
 *.test
 *.out
 vendor/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-.venv/
-ENV/
-env/
-*.egg-info/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# ML Models (keep models but ignore large files)
-ml/models/*.pkl
-ml/models/*.h5
-ml/train/data/*.csv
-
-# Environment
-.env
-.env.example
-
-# Local environment (keep .env.local as template)
-# .env.local
-
-# Data & Databases
-data/
-*.db
-*.sqlite
-
-# Logs
-*.log
-logs/
-
-# Temporary/Status Files
-*_FIXES*.md
-*_STATUS*.md
-PROJECT_STATUS.md
-SYSTEM_STATUS*.md
+bin/
+collector
+remediator
 
 # IDE
 .vscode/
@@ -58,35 +31,37 @@ SYSTEM_STATUS*.md
 *.swp
 *.swo
 *~
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Runtime
+.pids/
+*.pid
+
+# ML Models (keep structure, ignore binaries)
+ml/train/models/*.joblib
+ml/train/models/*.pkl
+
+# Database
+*.db
+*.sqlite3
+
+# Environment
+.env
+.env.local
+config.env
 
 # OS
 .DS_Store
 Thumbs.db
-.Trash-*
 
-# Temporary & Backup files
+# Temporary files
+tmp/
+temp/
 *.tmp
-*.backup
-*.old
-*.bak
 
-# Docker volumes (if created locally)
-timescaledb_data/
-grafana_data/
-ollama_data/
-
-# Grafana generated files
-.grafana/plugins/
-.grafana/provisioning/
-
-# ML model binaries (large files)
-ml/train/models/*.joblib
-ml/train/models/label_encoder.joblib
-ml/train/models/scaler.joblib
-ml/train/models/training_metadata.json
-
-# Local environment files
-.pids/
-venv/
-bin/collector
-bin/remediator
+# Docker volumes (if any)
+docker-data/

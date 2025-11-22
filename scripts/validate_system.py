@@ -5,17 +5,22 @@ Tests all critical components to ensure they're working correctly
 """
 
 import psycopg2
+import psycopg2.extensions
 import requests
 import time
 import sys
 import os
 from datetime import datetime
+from typing import Optional, Tuple, Dict, Any, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from psycopg2.extensions import connection
 
 # Configuration - read from environment with fallback to localhost
-DB_URL = os.getenv("DATABASE_URL", "postgresql://aura:aura_password@localhost:5432/aura_metrics")
-ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://localhost:8001")
-GRAFANA_URL = os.getenv("GRAFANA_URL", "http://localhost:3000")
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
+DB_URL: str = os.getenv("DATABASE_URL", "postgresql://aura:aura_password@localhost:5432/aura_metrics")
+ML_SERVICE_URL: str = os.getenv("ML_SERVICE_URL", "http://localhost:8001")
+GRAFANA_URL: str = os.getenv("GRAFANA_URL", "http://localhost:3000")
+MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
 
 print(f"\n📡 Using endpoints:")
 print(f"   DB: {DB_URL.split('@')[1] if '@' in DB_URL else DB_URL}")
@@ -24,28 +29,53 @@ print(f"   Grafana: {GRAFANA_URL}")
 print(f"   MCP: {MCP_SERVER_URL}")
 
 class Colors:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    END = '\033[0m'
+    """ANSI color codes for terminal output."""
+    GREEN: str = '\033[92m'
+    RED: str = '\033[91m'
+    YELLOW: str = '\033[93m'
+    BLUE: str = '\033[94m'
+    END: str = '\033[0m'
 
-def print_header(text):
+def print_header(text: str) -> None:
+    """Print a formatted header.
+    
+    Args:
+        text: Header text to display
+    """
     print(f"\n{Colors.BLUE}{'='*60}{Colors.END}")
     print(f"{Colors.BLUE}{text:^60}{Colors.END}")
     print(f"{Colors.BLUE}{'='*60}{Colors.END}\n")
 
-def print_success(text):
+def print_success(text: str) -> None:
+    """Print a success message.
+    
+    Args:
+        text: Success message to display
+    """
     print(f"{Colors.GREEN}✓ {text}{Colors.END}")
 
-def print_error(text):
+def print_error(text: str) -> None:
+    """Print an error message.
+    
+    Args:
+        text: Error message to display
+    """
     print(f"{Colors.RED}✗ {text}{Colors.END}")
 
-def print_warning(text):
+def print_warning(text: str) -> None:
+    """Print a warning message.
+    
+    Args:
+        text: Warning message to display
+    """
     print(f"{Colors.YELLOW}⚠ {text}{Colors.END}")
 
-def test_database():
-    """Test database connectivity and schema"""
+def test_database() -> Tuple[bool, Optional[str]]:
+    """Test database connectivity and schema.
+    
+    Returns:
+        Tuple of (success: bool, error_message: Optional[str])
+    """
     print_header("DATABASE TESTS")
     
     try:
@@ -54,12 +84,12 @@ def test_database():
             with conn.cursor() as cur:
                 print_success("Connected to TimescaleDB")
                 
-                # Test tables exist
-                tables = ['pod_metrics', 'ml_predictions', 'remediations', 'issues', 'node_metrics']
+                # Test tables exist - include all tables used by orchestrator
+                tables = ['pod_metrics', 'ml_predictions', 'remediations', 'issues', 'node_metrics', 'cost_savings', 'remediation_actions']
                 cur.execute("""
                     SELECT tablename FROM pg_tables 
                     WHERE schemaname = 'public' 
-                    AND tablename IN ('pod_metrics', 'ml_predictions', 'remediations', 'issues', 'node_metrics')
+                    AND tablename IN ('pod_metrics', 'ml_predictions', 'remediations', 'issues', 'node_metrics', 'cost_savings', 'remediation_actions')
                 """)
                 existing_tables = [row[0] for row in cur.fetchall()]
                 
