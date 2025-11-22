@@ -69,3 +69,4 @@ docker-data/
 .env.local
 venv
 .gitignore
+./.env.local

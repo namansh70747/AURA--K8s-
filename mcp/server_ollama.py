@@ -15,6 +15,24 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Dict, List, Optional, Any
 import httpx
 import json
+
+# Gemini API integration
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("⚠️  Google Generative AI not available, using Ollama only")
+
+# Comprehensive error detection
+try:
+    from .error_detector import ComprehensiveErrorDetector
+except ImportError:
+    try:
+        from error_detector import ComprehensiveErrorDetector
+    except ImportError:
+        ComprehensiveErrorDetector = None
+        print("⚠️  ComprehensiveErrorDetector not available")
 try:
     # Try relative import first (when running from mcp/ directory)
     from .tools import KubernetesTools
@@ -45,6 +63,24 @@ logger = logging.getLogger(__name__)
 # Ollama configuration (needed for lifespan)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+
+# Gemini API configuration
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCvwp8qA9NY2tiXxjqShEjsvRGW9rOA388")
+if GEMINI_AVAILABLE and GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        GEMINI_MODEL = genai.GenerativeModel('gemini-pro')
+        logger.info("✅ Gemini API configured")
+    except Exception as e:
+        logger.warning(f"⚠️  Gemini API configuration failed: {e}")
+        GEMINI_MODEL = None
+else:
+    GEMINI_MODEL = None
+
+# Initialize error detector
+error_detector = ComprehensiveErrorDetector() if ComprehensiveErrorDetector else None
+if error_detector:
+    logger.info("✅ Comprehensive error detector initialized")
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -305,20 +341,44 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
             raise HTTPException(status_code=500, detail="Kubernetes client not available")
 
         pod_info = k8s_tools.get_pod(analysis_request.namespace, analysis_request.pod_name)
-        events = k8s_tools.get_events(analysis_request.namespace, analysis_request.pod_name, limit=3)
-        logs = k8s_tools.get_pod_logs(analysis_request.namespace, analysis_request.pod_name, lines=15)
+        events = k8s_tools.get_events(analysis_request.namespace, analysis_request.pod_name, limit=10)
+        logs = k8s_tools.get_pod_logs(analysis_request.namespace, analysis_request.pod_name, lines=50)
         deployment = k8s_tools.get_deployment_for_pod(analysis_request.namespace, analysis_request.pod_name)
         metrics = k8s_tools.get_pod_resource_usage(analysis_request.namespace, analysis_request.pod_name)
+        
+        # Comprehensive error detection
+        detected_errors = []
+        if error_detector:
+            try:
+                detected_errors = error_detector.detect_all_errors(
+                    pod_data=pod_info,
+                    events=events,
+                    logs=logs if logs else "",
+                    metrics=metrics if metrics else {}
+                )
+                logger.info(f"Detected {len(detected_errors)} errors from comprehensive detector")
+            except Exception as e:
+                logger.warning(f"Error detection failed: {e}")
 
         context_data = analysis_request.context or {}
+        context_data['detected_errors'] = detected_errors
         
         prompt = build_comprehensive_prompt(
-            analysis_request, pod_info, events, logs, deployment, metrics, context_data
+            analysis_request, pod_info, events, logs, deployment, metrics, context_data, detected_errors
         )
 
         try:
-            ollama_response = await call_ollama(prompt)
-            plan = parse_remediation_plan(ollama_response)
+            # Use hybrid AI: Gemini for complex issues, Ollama for simple ones
+            complexity = assess_issue_complexity(analysis_request, detected_errors, events)
+            
+            if complexity == 'complex' and GEMINI_MODEL:
+                logger.info("Using Gemini API for complex issue analysis")
+                ai_response = await call_gemini(prompt)
+            else:
+                logger.info("Using Ollama for issue analysis")
+                ai_response = await call_ollama(prompt)
+            
+            plan = parse_remediation_plan(ai_response)
             
             validate_plan(plan)
             
@@ -409,7 +469,31 @@ async def analyze_with_plan(request: Request, analysis_request: IssueAnalysisReq
 app.include_router(v1_router)
 
 
-def build_comprehensive_prompt(request, pod_info, events, logs, deployment, metrics, context):
+def assess_issue_complexity(request, detected_errors, events) -> str:
+    """Assess issue complexity to determine which AI to use"""
+    # Simple: single error, clear cause
+    # Complex: multiple errors, unclear cause, cascading failures
+    
+    if len(detected_errors) > 3 or request.severity == 'critical':
+        return 'complex'
+    elif len(detected_errors) == 1 and request.severity == 'low':
+        return 'simple'
+    else:
+        return 'medium'
+
+
+async def call_gemini(prompt: str) -> str:
+    """Call Gemini API for complex issue analysis"""
+    try:
+        response = GEMINI_MODEL.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        logger.error(f"Gemini API call failed: {e}")
+        # Fallback to Ollama
+        return await call_ollama(prompt)
+
+
+def build_comprehensive_prompt(request, pod_info, events, logs, deployment, metrics, context, detected_errors):
     container_status = ""
     if context.get("containers"):
         for c in context["containers"]:
@@ -461,8 +545,11 @@ Memory: {metrics.get('memory_mib', 'N/A') if metrics else 'N/A'} MiB
 RECENT EVENTS:
 {events_summary if events_summary else '  None'}
 
-LOGS (last 15 lines):
-{logs[-500:] if logs else 'No logs available'}
+DETECTED ERRORS ({len(detected_errors)} total):
+{chr(10).join([f"  - {e['type']}: {e['message']} (severity: {e['severity']}, confidence: {e['confidence']:.2f})" for e in detected_errors[:10]]) if detected_errors else '  None'}
+
+LOGS (last 50 lines):
+{logs[-2000:] if logs else 'No logs available'}
 
 TASK: Analyze this issue and create a detailed remediation plan.
 

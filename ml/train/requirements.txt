@@ -1,5 +1,6 @@
 # ML Training Requirements for AURA K8s - Python 3.11 Compatible
 # Tested with Python 3.11.x (recommended)
+# Mac M4 Optimized - CPU-Only Training
 
 # Core Data Science (Latest stable versions)
 pandas>=2.2.0
@@ -10,19 +11,19 @@ scipy>=1.13.0
 scikit-learn>=1.5.0
 imbalanced-learn>=0.12.0
 
-# Gradient Boosting Libraries (Latest stable)
+# Gradient Boosting Libraries (Latest stable) - CPU Optimized
 xgboost>=2.1.0
 lightgbm>=4.5.0
 catboost>=1.2.7
 
-# Deep Learning (Latest stable releases)
-tensorflow>=2.15.0
-torch>=2.1.0
-transformers>=4.35.0
+# Deep Learning (Latest stable releases) - Optional for Mac
+# tensorflow>=2.15.0  # Commented out - GPU not available on Mac
+# torch>=2.1.0  # Commented out - GPU not available on Mac
+# transformers>=4.35.0  # Commented out - GPU not available on Mac
 
-# Time Series Forecasting (Stable version)
-# prophet==1.1.1  # Commented out - requires heavy C++ build tools
+# Time Series Forecasting (CPU-Friendly)
 statsmodels>=0.14.0
+# prophet==1.1.1  # Commented out - requires heavy C++ build tools, use statsmodels instead
 
 # Hyperparameter Optimization
 optuna>=4.0.0
@@ -31,7 +32,7 @@ hyperopt>=0.2.7
 # Model Persistence
 joblib>=1.4.0
 
-# Visualization
+# Visualization (Optional)
 matplotlib>=3.9.0
 seaborn>=0.13.0
 plotly>=5.24.0
