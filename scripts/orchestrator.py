@@ -887,7 +887,7 @@ def generate_predictions(conn: "connection", ml_service_url: str) -> int:
                 AND pm.timestamp = mp.timestamp
             WHERE pm.timestamp > NOW() - INTERVAL '1 hour'
                 AND mp.timestamp IS NULL
-                AND pm.namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'default')
+                AND pm.namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')
             ORDER BY pm.pod_name, pm.namespace, pm.timestamp DESC
             LIMIT 50
         """)
@@ -1299,7 +1299,11 @@ def create_issues_from_predictions(conn: "connection") -> int:
                 AND mp.predicted_issue = i.issue_type
                 AND i.status IN ('Open', 'InProgress')
             WHERE mp.timestamp > NOW() - INTERVAL '1 hour'
-                AND (mp.predicted_issue != 'healthy' OR mp.is_anomaly = 1)
+                AND (
+                    (mp.predicted_issue != 'healthy' AND mp.predicted_issue IS NOT NULL) 
+                    OR mp.is_anomaly = 1 
+                    OR (mp.predicted_issue = 'healthy' AND mp.confidence > 0.6 AND (pm.has_oom_kill = true OR pm.has_crash_loop = true OR pm.has_high_cpu = true OR pm.cpu_utilization > 50 OR pm.memory_utilization > 70))
+                )
                 AND mp.confidence > %s
                 AND i.id IS NULL
             ORDER BY mp.pod_name, mp.namespace, mp.predicted_issue, mp.timestamp DESC
@@ -1458,6 +1462,7 @@ def create_issues_from_thresholds(conn: "connection") -> int:
             WHERE pm.timestamp > NOW() - INTERVAL '10 minutes'
                 AND i.id IS NULL
                 AND pm.namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')
+                AND (pm.namespace != 'default' OR (pm.namespace = 'default' AND pm.pod_name LIKE 'test-%'))
                 AND (
                     pm.cpu_utilization > 80 OR
                     pm.memory_utilization > 70 OR
@@ -1909,10 +1914,9 @@ def main():
                 # Step 1: Generate predictions from recent metrics
                 predictions = generate_predictions(conn, ML_SERVICE_URL)
 
-                # Step 2: Create issues from predictions (only if we have predictions)
-                issues_from_ml = 0
-                if predictions > 0:
-                    issues_from_ml = create_issues_from_predictions(conn)
+                # Step 2: Create issues from predictions (always check existing predictions)
+                # This ensures issues are created even if no new predictions were generated this cycle
+                issues_from_ml = create_issues_from_predictions(conn)
 
                 # Step 3: Create issues from direct metric thresholds (always run as fallback)
                 issues_from_thresholds = create_issues_from_thresholds(conn)

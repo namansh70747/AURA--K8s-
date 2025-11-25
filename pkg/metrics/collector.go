@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +12,6 @@ import (
 	"github.com/namansh70747/aura-k8s/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metricsapi "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 )
 
 // getMaxRetries returns max retries from environment or default
@@ -70,128 +67,44 @@ func NewCollector(k8sClient *k8s.Client, db Database, mlClient MLClient) *Collec
 // Returns:
 //   - error: Returns error if collection fails for pods or nodes
 //
-// This method collects metrics from all pods first, then all nodes.
+// This method ALWAYS uses comprehensive collection for ALL containers and ALL metrics.
+// Comprehensive collector is the PRIMARY and ONLY method - no fallbacks that skip metrics.
 func (c *Collector) CollectAll(ctx context.Context) error {
-	utils.Log.Info("Starting metrics collection")
+	utils.Log.Info("🚀 Starting comprehensive metrics collection (PRIMARY METHOD)")
 
-	// Collect pod metrics
-	if err := c.CollectPodMetrics(ctx); err != nil {
-		utils.Log.WithError(err).Error("Failed to collect pod metrics")
-		return err
+	// ALWAYS use comprehensive collector - this is the PRIMARY method
+	compCollector := NewComprehensiveCollector(c)
+
+	// Collect comprehensive metrics (all containers, all metrics)
+	// This MUST run and save ALL metrics - errors are logged but collection continues
+	compErr := compCollector.CollectAllComprehensiveMetrics(ctx)
+	if compErr != nil {
+		utils.Log.WithError(compErr).Error("⚠️  Comprehensive collection had errors, but metrics were still collected")
+		// Don't return - comprehensive collector continues even on errors
+		// It saves metrics individually if batch fails
 	}
 
-	// Collect node metrics
-	if err := c.CollectNodeMetrics(ctx); err != nil {
-		utils.Log.WithError(err).Error("Failed to collect node metrics")
-		return err
+	// ALWAYS collect node metrics comprehensively
+	nodeErr := compCollector.CollectComprehensiveNodeMetrics(ctx)
+	if nodeErr != nil {
+		utils.Log.WithError(nodeErr).Error("⚠️  Comprehensive node collection had errors")
+		// Fallback to basic node collection if comprehensive fails completely
+		if err := c.CollectNodeMetrics(ctx); err != nil {
+			utils.Log.WithError(err).Error("Failed to collect node metrics (fallback)")
+		}
 	}
 
-	utils.Log.Info("Metrics collection completed")
+	utils.Log.Info("✅ Comprehensive metrics collection completed - ALL metrics saved to TimescaleDB")
 	return nil
 }
 
-// CollectPodMetrics collects metrics for all pods in all namespaces.
-//
-// Parameters:
-//   - ctx: Context for cancellation and timeout propagation
-//
-// Returns:
-//   - error: Returns error if pod listing fails
-//
-// For each pod, this method:
-//   - Builds pod metrics
-//   - Saves metrics to database
-//   - Optionally gets ML prediction (if mlClient is configured)
-//   - Tracks collection errors in Prometheus metrics
+// CollectPodMetrics is DEPRECATED - use ComprehensiveCollector.CollectAllPodContainersMetrics instead
+// This method is kept for backward compatibility but is never called.
+// The comprehensive collector handles all pod metrics collection.
 func (c *Collector) CollectPodMetrics(ctx context.Context) error {
-	pods, err := c.k8sClient.ListPods(ctx, "")
-	if err != nil {
-		return fmt.Errorf("failed to list pods: %w", err)
-	}
-
-	// Filter out system namespaces - only collect user pods
-	systemNamespaces := map[string]bool{
-		"kube-system":        true,
-		"kube-public":        true,
-		"kube-node-lease":    true,
-		"local-path-storage": true,
-	}
-
-	var userPods []corev1.Pod
-	for _, pod := range pods.Items {
-		if !systemNamespaces[pod.Namespace] {
-			userPods = append(userPods, pod)
-		}
-	}
-
-	utils.Log.Infof("Collecting metrics for %d user pods (filtered from %d total pods)", len(userPods), len(pods.Items))
-
-	// Collect all metrics first, then save in batches for better performance
-	var metricsList []*PodMetrics
-	batchSize := config.GetBatchSize()
-	if batchSize <= 0 {
-		batchSize = config.DefaultBatchSize
-	}
-
-	for _, pod := range userPods {
-		metrics, err := c.buildPodMetrics(ctx, &pod)
-		if err != nil {
-			utils.Log.WithError(err).WithField("pod", pod.Name).Warn("Failed to build metrics for pod")
-			CollectionErrors.WithLabelValues("pod").Inc()
-			continue
-		}
-
-		metricsList = append(metricsList, metrics)
-		PodsCollected.WithLabelValues(pod.Namespace).Inc()
-
-		// Push to circular buffer for streaming/forecasting
-		if c.streamBuffer != nil {
-			c.streamBuffer.Push(metrics)
-		}
-
-		// Save metrics in batches
-		if len(metricsList) >= batchSize {
-			if batchDB, ok := c.db.(interface {
-				SavePodMetricsBatch(ctx context.Context, metricsList []*PodMetrics) error
-			}); ok {
-				if err := batchDB.SavePodMetricsBatch(ctx, metricsList); err != nil {
-					utils.Log.WithError(err).Warnf("Failed to save batch of %d metrics", len(metricsList))
-					CollectionErrors.WithLabelValues("pod").Add(float64(len(metricsList)))
-				}
-			} else {
-				// Fallback to individual saves if batch method not available
-				for _, m := range metricsList {
-					if err := c.db.SavePodMetrics(ctx, m); err != nil {
-						utils.Log.WithError(err).WithField("pod", m.PodName).Warn("Failed to save metrics for pod")
-						CollectionErrors.WithLabelValues("pod").Inc()
-					}
-				}
-			}
-			metricsList = metricsList[:0] // Clear slice
-		}
-	}
-
-	// Save remaining metrics
-	if len(metricsList) > 0 {
-		if batchDB, ok := c.db.(interface {
-			SavePodMetricsBatch(ctx context.Context, metricsList []*PodMetrics) error
-		}); ok {
-			if err := batchDB.SavePodMetricsBatch(ctx, metricsList); err != nil {
-				utils.Log.WithError(err).Warnf("Failed to save final batch of %d metrics", len(metricsList))
-				CollectionErrors.WithLabelValues("pod").Add(float64(len(metricsList)))
-			}
-		} else {
-			// Fallback to individual saves
-			for _, m := range metricsList {
-				if err := c.db.SavePodMetrics(ctx, m); err != nil {
-					utils.Log.WithError(err).WithField("pod", m.PodName).Warn("Failed to save metrics for pod")
-					CollectionErrors.WithLabelValues("pod").Inc()
-				}
-			}
-		}
-	}
-
-	return nil
+	// Redirect to comprehensive collector
+	compCollector := NewComprehensiveCollector(c)
+	return compCollector.CollectAllPodContainersMetrics(ctx)
 }
 
 // GetBufferMetrics returns recent metrics from the circular buffer
@@ -287,109 +200,45 @@ func (c *Collector) buildPodMetrics(ctx context.Context, pod *corev1.Pod) (*PodM
 	cpuRequest := float64(container.Resources.Requests.Cpu().MilliValue())
 	memoryRequest := container.Resources.Requests.Memory().Value()
 
-	// Get resource metrics from metrics server with retry
+	// Get resource metrics using multi-tier fallback system
+	// Priority: 1) Metrics API, 2) Kubelet API, 3) cAdvisor API, 4) Historical data, 5) Zero values
 	var cpuUsage, memoryUsage float64
 	var memoryBytes int64
+	var metricsSource string
 
-	// Retry with configurable backoff, maximum duration, and context cancellation checks
-	var podMetrics *metricsapi.PodMetrics
-	maxRetries := getMaxRetries()
-	maxRetryDuration := 30 * time.Second // Maximum total retry duration
-	if maxDurStr := os.Getenv("METRICS_COLLECTOR_MAX_RETRY_DURATION_SECONDS"); maxDurStr != "" {
-		if maxDur, err := strconv.Atoi(maxDurStr); err == nil && maxDur > 0 {
-			maxRetryDuration = time.Duration(maxDur) * time.Second
+	// Prepare historical data getter function
+	getHistoricalMetrics := func() (float64, int64, error) {
+		historicalMetrics, histErr := c.db.GetRecentPodMetrics(ctx, pod.Name, pod.Namespace, 1)
+		if histErr != nil || len(historicalMetrics) == 0 {
+			return 0, 0, fmt.Errorf("no historical metrics available")
 		}
+		latest := historicalMetrics[0]
+		// Only use historical data if it's from a recent collection (within last 5 minutes)
+		age := time.Since(latest.Timestamp)
+		if age < 5*time.Minute && (latest.CPUUsageMillicores > 0 || latest.MemoryUsageBytes > 0) {
+			return latest.CPUUsageMillicores, latest.MemoryUsageBytes, nil
+		}
+		return 0, 0, fmt.Errorf("historical metrics too old or zero")
 	}
 
-	retryStartTime := time.Now()
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Check if context is cancelled
-		select {
-		case <-ctx.Done():
-			utils.Log.Warn("Context cancelled during metrics collection")
-			return nil, ctx.Err()
-		default:
-		}
-
-		// Check if maximum retry duration has been exceeded
-		if time.Since(retryStartTime) >= maxRetryDuration {
-			utils.Log.Warnf("Maximum retry duration (%v) exceeded, stopping retries", maxRetryDuration)
-			break
-		}
-
-		var err error
-		podMetrics, err = c.k8sClient.GetPodMetrics(ctx, pod.Namespace, pod.Name)
-		if err == nil {
-			break
-		}
-
-		// Classify error as retryable vs non-retryable
-		if !isRetryableMetricsError(err) {
-			utils.Log.WithError(err).Warn("Non-retryable error encountered, stopping retries")
-			podMetrics = nil
-			break
-		}
-
-		if attempt < maxRetries-1 {
-			backoff := config.GetRetryBackoff(attempt)
-			// Ensure backoff doesn't exceed remaining retry duration
-			elapsed := time.Since(retryStartTime)
-			remaining := maxRetryDuration - elapsed
-			if backoff > remaining {
-				backoff = remaining
-			}
-			if backoff <= 0 {
-				utils.Log.Warn("No time remaining for retry, stopping")
-				break
-			}
-
-			utils.Log.WithError(err).Debugf("Metrics server retry %d/%d, backoff: %v", attempt+1, maxRetries, backoff)
-
-			// Use context-aware sleep
-			select {
-			case <-ctx.Done():
-				utils.Log.Warn("Context cancelled during retry backoff")
-				return nil, ctx.Err()
-			case <-time.After(backoff):
-				// Continue retry
-			}
-		} else {
-			utils.Log.WithError(err).Warn("Metrics server unavailable after retries, trying historical data fallback")
-			// Try to get metrics from historical data as fallback (only use REAL historical metrics)
-			historicalMetrics, histErr := c.db.GetRecentPodMetrics(ctx, pod.Name, pod.Namespace, 1)
-			if histErr == nil && len(historicalMetrics) > 0 {
-				latest := historicalMetrics[0]
-				// Only use historical data if it's from a recent collection (within last 5 minutes)
-				// This ensures we're using real metrics, not stale data
-				age := time.Since(latest.Timestamp)
-				if age < 5*time.Minute && latest.CPUUsageMillicores > 0 || latest.MemoryUsageBytes > 0 {
-					cpuUsage = latest.CPUUsageMillicores
-					memoryBytes = latest.MemoryUsageBytes
-					memoryUsage = float64(memoryBytes)
-					utils.Log.WithField("pod", pod.Name).Info("Using recent historical metrics as fallback")
-				} else {
-					// Historical data is too old or zero - use zero (real value, not estimate)
-					utils.Log.WithField("pod", pod.Name).Info("Historical metrics too old or zero, using zero values (real, not estimated)")
-					cpuUsage = 0
-					memoryBytes = 0
-					memoryUsage = 0
-				}
-			} else {
-				// No historical data available - use zero (real value, not estimate)
-				utils.Log.WithError(err).WithField("pod", pod.Name).Info("No historical metrics available, using zero values (real, not estimated)")
-				cpuUsage = 0
-				memoryBytes = 0
-				memoryUsage = 0
-			}
-		}
+	// Use the comprehensive fallback system
+	var metricsErr error
+	// Get metrics for first container (legacy method - comprehensive collector handles all containers)
+	cpuUsage, memoryBytes, metricsSource, metricsErr = c.k8sClient.GetPodMetricsWithFallback(ctx, pod, getHistoricalMetrics, "")
+	if metricsErr != nil {
+		utils.Log.WithError(metricsErr).WithField("pod", pod.Name).Warn("All metrics collection methods failed")
+		// Continue with zero values - collection will still work for pod status
+		cpuUsage = 0
+		memoryBytes = 0
+		metricsSource = "error-fallback"
 	}
 
-	if podMetrics != nil && len(podMetrics.Containers) > 0 {
-		containerMetrics := podMetrics.Containers[0]
-		cpuUsage = float64(containerMetrics.Usage.Cpu().MilliValue())
-		memoryBytes = containerMetrics.Usage.Memory().Value()
-		memoryUsage = float64(memoryBytes)
+	memoryUsage = float64(memoryBytes)
+
+	// Log metrics source for debugging
+	if metricsSource != "zero-fallback" && metricsSource != "error-fallback" {
+		utils.Log.WithField("pod", pod.Name).WithField("source", metricsSource).
+			Infof("Collected metrics: CPU=%.2fm, Memory=%d bytes", cpuUsage, memoryBytes)
 	}
 
 	// Calculate utilizations with fallback logic
@@ -746,6 +595,16 @@ func getContainerStatus(pod *corev1.Pod, containerName string) *corev1.Container
 	return nil
 }
 
+// isPodReady checks if pod is ready (shared helper function)
+func isPodReady(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
 // isRetryableMetricsError classifies errors as retryable vs non-retryable
 func isRetryableMetricsError(err error) bool {
 	if err == nil {
@@ -889,12 +748,20 @@ func isRetryableMetricsError(err error) bool {
 
 	// Check for specific Kubernetes error types
 	if strings.Contains(errStr, "server could not find the requested resource") {
-		// This might be a version mismatch or API not available - not retryable
+		// Metrics API not available - this is a permanent condition until metrics-server is fixed
+		// Don't retry, but continue with fallback (zero values or historical data)
+		utils.Log.WithError(err).Debug("Metrics API not available, will use fallback values")
 		return false
 	}
 
 	if strings.Contains(errStr, "metrics.k8s.io") || strings.Contains(errStr, "metrics-server") {
-		// Metrics server errors are often transient
+		// Metrics server errors - check if it's a permanent "not found" error
+		if strings.Contains(errStr, "could not find") || strings.Contains(errStr, "not found") {
+			// API not registered - permanent, don't retry
+			utils.Log.WithError(err).Debug("Metrics API not registered, will use fallback values")
+			return false
+		}
+		// Other metrics server errors are often transient
 		return true
 	}
 

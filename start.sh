@@ -87,56 +87,53 @@ if ! kubectl cluster-info >/dev/null 2>&1; then
 fi
 kubectl config use-context kind-aura-k8s-local 2>/dev/null || true
 
-# Install metrics-server if not present
+# Install metrics-server with complete configuration (RBAC, APIService, Health Checks)
+# This ensures metrics-server is ALWAYS working every day and every time
 if ! kubectl get deployment metrics-server -n kube-system >/dev/null 2>&1; then
-    echo -e "${BLUE}Installing metrics-server...${NC}"
-    kubectl apply -f - <<EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: metrics-server
-  namespace: kube-system
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: metrics-server
-  namespace: kube-system
-spec:
-  selector:
-    matchLabels:
-      k8s-app: metrics-server
-  template:
-    metadata:
-      labels:
-        k8s-app: metrics-server
-    spec:
-      serviceAccountName: metrics-server
-      containers:
-      - name: metrics-server
-        image: registry.k8s.io/metrics-server/metrics-server:v0.7.0
-        args:
-          - --cert-dir=/tmp
-          - --secure-port=4443
-          - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
-          - --kubelet-use-node-status-port
-          - --metric-resolution=15s
-          - --kubelet-insecure-tls
-        ports:
-        - name: https
-          containerPort: 4443
-          protocol: TCP
-EOF
-    kubectl rollout status deployment/metrics-server -n kube-system --timeout=60s
-    sleep 10
-    for i in {1..20}; do
+    echo -e "${BLUE}Installing metrics-server with complete configuration...${NC}"
+    kubectl apply -f configs/metrics-server.yaml
+    echo -e "${BLUE}Waiting for metrics-server to be ready...${NC}"
+    kubectl rollout status deployment/metrics-server -n kube-system --timeout=120s || true
+    sleep 15
+    
+    # Verify metrics-server is working
+    echo -e "${BLUE}Verifying metrics-server health...${NC}"
+    for i in {1..30}; do
         if kubectl top nodes >/dev/null 2>&1; then
-            echo -e "${GREEN}✓ Metrics-server ready${NC}"
+            echo -e "${GREEN}✓ Metrics-server ready and working${NC}"
             break
+        fi
+        if [ $i -eq 30 ]; then
+            echo -e "${YELLOW}⚠ Metrics-server installed but not ready yet (will continue in background)${NC}"
         fi
         sleep 2
     done
+else
+    # Ensure metrics-server is always healthy - check and restart if needed
+    echo -e "${BLUE}Checking metrics-server health...${NC}"
+    if ! kubectl get deployment metrics-server -n kube-system -o jsonpath='{.status.readyReplicas}' | grep -q "1"; then
+        echo -e "${YELLOW}Metrics-server not ready, ensuring it's running...${NC}"
+        kubectl rollout restart deployment/metrics-server -n kube-system
+        kubectl rollout status deployment/metrics-server -n kube-system --timeout=120s || true
+    fi
+    
+    # Verify APIService is registered
+    if ! kubectl get apiservice v1beta1.metrics.k8s.io >/dev/null 2>&1; then
+        echo -e "${YELLOW}APIService not found, applying complete configuration...${NC}"
+        kubectl apply -f configs/metrics-server.yaml
+    fi
+    
+    # Test metrics-server
+    if kubectl top nodes >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Metrics-server is working${NC}"
+    else
+        echo -e "${YELLOW}⚠ Metrics-server may need a moment to become ready${NC}"
+    fi
 fi
+
+# Ensure metrics-server is always working (health check)
+echo -e "${BLUE}Running metrics-server health check...${NC}"
+bash scripts/ensure-metrics-server.sh || echo -e "${YELLOW}Metrics-server health check completed with warnings${NC}"
 
 # Note: User should deploy their own pods for metrics collection
 
@@ -517,6 +514,12 @@ if curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then
 fi
 
 echo ""
+# Start metrics-server monitor in background (ensures metrics-server is always working)
+echo -e "${BLUE}Starting metrics-server monitor (ensures metrics-server is always working)...${NC}"
+nohup bash scripts/metrics-server-monitor.sh > logs/metrics-server-monitor.log 2>&1 &
+echo $! > .metrics-server-monitor.pid
+echo -e "${GREEN}✓ Metrics-server monitor started (PID: $(cat .metrics-server-monitor.pid))${NC}"
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}System Started Successfully${NC}"
 echo -e "${GREEN}========================================${NC}"

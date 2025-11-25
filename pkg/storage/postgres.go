@@ -147,19 +147,19 @@ func (p *PostgresDB) InitSchema(ctx context.Context) error {
 			if acceptableCodes[errorCode] {
 				// These are acceptable errors for idempotent operations
 				utils.Log.WithError(err).WithFields(map[string]interface{}{
-					"pg_code":   errorCode,
-					"severity":  pgErr.Severity,
-					"message":   pgErr.Message,
+					"pg_code":  errorCode,
+					"severity": pgErr.Severity,
+					"message":  pgErr.Message,
 				}).Debug("Schema object already exists (expected for idempotent operations)")
 				// Continue - this is acceptable
 			} else {
 				// Real error - log and fail
 				utils.Log.WithError(err).WithFields(map[string]interface{}{
-					"pg_code":   errorCode,
-					"severity":  pgErr.Severity,
-					"message":   pgErr.Message,
-					"detail":    pgErr.Detail,
-					"hint":      pgErr.Hint,
+					"pg_code":  errorCode,
+					"severity": pgErr.Severity,
+					"message":  pgErr.Message,
+					"detail":   pgErr.Detail,
+					"hint":     pgErr.Hint,
 				}).Error("Schema initialization error")
 				tx.Rollback()
 				return fmt.Errorf("failed to initialize schema: %w", err)
@@ -1197,6 +1197,14 @@ func (p *PostgresDB) SavePodMetrics(ctx context.Context, m *metrics.PodMetrics) 
 		m.HasOOMKill, m.HasCrashLoop, m.HasHighCPU, m.HasNetworkIssues,
 	)
 
+	if err != nil {
+		utils.Log.WithError(err).
+			WithField("pod", m.PodName).
+			WithField("container", m.ContainerName).
+			WithField("namespace", m.Namespace).
+			Error("❌ CRITICAL: Failed to save metric to TimescaleDB")
+	}
+
 	return err
 }
 
@@ -1634,17 +1642,17 @@ func (p *PostgresDB) CleanupExpiredWarnings(ctx context.Context) (int64, error) 
 	DELETE FROM early_warnings
 	WHERE expires_at IS NOT NULL AND expires_at < NOW()
 	`
-	
+
 	result, err := p.db.ExecContext(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup expired warnings: %w", err)
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	
+
 	return rowsAffected, nil
 }
 

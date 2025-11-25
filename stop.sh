@@ -11,6 +11,16 @@ NC='\033[0m'
 
 echo -e "${YELLOW}Stopping AURA K8s services...${NC}"
 
+# Stop metrics-server monitor if running
+if [ -f .metrics-server-monitor.pid ]; then
+    MONITOR_PID=$(cat .metrics-server-monitor.pid)
+    if ps -p $MONITOR_PID > /dev/null 2>&1; then
+        echo -e "${GREEN}Stopping metrics-server monitor (PID: $MONITOR_PID)...${NC}"
+        kill $MONITOR_PID 2>/dev/null || true
+        rm -f .metrics-server-monitor.pid
+    fi
+fi
+
 # Create .pids directory if it doesn't exist
 mkdir -p .pids
 
