@@ -121,16 +121,16 @@ func main() {
 
 	// Determine collection mode (parallel or standard)
 	useParallel := getEnv("USE_PARALLEL_COLLECTION", "true") == "true"
-	
+
 	var collector interface {
 		CollectAll(ctx context.Context) error
 		CollectMetricsParallel(ctx context.Context) error
 	}
-	
+
 	// Store collector instance for API access
 	var standardCollector *metrics.Collector
 	var parallelCollector *metrics.ParallelCollector
-	
+
 	if useParallel {
 		// Get parallel collection configuration
 		workers := 20
@@ -139,21 +139,21 @@ func main() {
 				workers = w
 			}
 		}
-		
+
 		batchSize := 100
 		if val := os.Getenv("METRICS_COLLECTOR_BATCH_SIZE"); val != "" {
 			if bs, err := strconv.Atoi(val); err == nil && bs > 0 {
 				batchSize = bs
 			}
 		}
-		
+
 		cacheTTL := 10 * time.Second
 		if val := os.Getenv("METRICS_CACHE_TTL_SECONDS"); val != "" {
 			if ttl, err := strconv.Atoi(val); err == nil && ttl > 0 {
 				cacheTTL = time.Duration(ttl) * time.Second
 			}
 		}
-		
+
 		// Create parallel collector
 		parallelCollector = metrics.NewParallelCollector(k8sClient, postgresDB, mlClient, workers, batchSize, cacheTTL)
 		collector = parallelCollector
@@ -248,11 +248,11 @@ func main() {
 					limit = l
 				}
 			}
-			
+
 			// Get buffer metrics from either collector
 			var bufferMetrics []*metrics.PodMetrics
 			var stats map[string]interface{}
-			
+
 			if parallelCollector != nil {
 				// Parallel collector embeds *Collector, so it has access to buffer methods
 				bufferMetrics = parallelCollector.GetBufferMetrics(limit)
@@ -264,7 +264,7 @@ func main() {
 				http.Error(w, "No collector available", http.StatusServiceUnavailable)
 				return
 			}
-			
+
 			// Convert to JSON
 			type MetricResponse struct {
 				PodName           string    `json:"pod_name"`
@@ -276,7 +276,7 @@ func main() {
 				NetworkTxBytes    int64     `json:"network_tx_bytes"`
 				Restarts          int       `json:"restarts"`
 			}
-			
+
 			response := make([]MetricResponse, 0, len(bufferMetrics))
 			for _, m := range bufferMetrics {
 				if m != nil {
@@ -292,7 +292,7 @@ func main() {
 					})
 				}
 			}
-			
+
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"metrics": response,
@@ -300,11 +300,11 @@ func main() {
 				"stats":   stats,
 			})
 		})
-		
+
 		// Buffer stats endpoint - works with both collectors
 		mux.HandleFunc("/api/v1/buffer/stats", func(w http.ResponseWriter, r *http.Request) {
 			var stats map[string]interface{}
-			
+
 			if parallelCollector != nil {
 				stats = parallelCollector.GetBufferStats()
 			} else if standardCollector != nil {
@@ -313,7 +313,7 @@ func main() {
 				http.Error(w, "No collector available", http.StatusServiceUnavailable)
 				return
 			}
-			
+
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(stats)
 		})

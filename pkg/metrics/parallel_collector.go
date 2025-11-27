@@ -14,23 +14,22 @@ import (
 )
 
 // CollectionStrategy defines the collection strategy
+// NOTE: Only StrategyBalanced is used - StrategyFast and StrategyDeep are unused
 type CollectionStrategy string
 
 const (
-	StrategyFast      CollectionStrategy = "fast"      // Collect critical metrics only
-	StrategyBalanced CollectionStrategy = "balanced"  // Collect all metrics
-	StrategyDeep     CollectionStrategy = "deep"      // Deep collection with logs
+	StrategyBalanced CollectionStrategy = "balanced" // Collect all metrics (only strategy used)
 )
 
 // ParallelCollector extends Collector with parallel collection capabilities
 type ParallelCollector struct {
 	*Collector
-	workers       int
-	batchSize     int
-	cache         *MetricsCache
-	cacheTTL      time.Duration
-	workerPool    chan struct{} // Semaphore for limiting concurrent workers
-	metricsChan   chan *PodMetrics
+	workers        int
+	batchSize      int
+	cache          *MetricsCache
+	cacheTTL       time.Duration
+	workerPool     chan struct{} // Semaphore for limiting concurrent workers
+	metricsChan    chan *PodMetrics
 	batchProcessor *BatchProcessor
 }
 
@@ -54,25 +53,34 @@ func NewParallelCollector(
 	}
 
 	collector := NewCollector(k8sClient, db, mlClient)
-	
+
 	batchProc := NewBatchProcessor(batchSize, 5*time.Second, db)
 	batchProc.Start() // Start the batch processor
-	
+
 	return &ParallelCollector{
-		Collector:     collector,
-		workers:       workers,
-		batchSize:     batchSize,
-		cache:         NewMetricsCache(cacheTTL, 5*time.Minute),
-		cacheTTL:      cacheTTL,
-		workerPool:    make(chan struct{}, workers),
-		metricsChan:   make(chan *PodMetrics, workers*10), // Buffered channel
+		Collector:      collector,
+		workers:        workers,
+		batchSize:      batchSize,
+		cache:          NewMetricsCache(cacheTTL, 5*time.Minute),
+		cacheTTL:       cacheTTL,
+		workerPool:     make(chan struct{}, workers),
+		metricsChan:    make(chan *PodMetrics, workers*10), // Buffered channel
 		batchProcessor: batchProc,
 	}
 }
 
 // CollectAll collects metrics from all pods and nodes (implements CollectorInterface)
+// Uses comprehensive collector to ensure ALL metrics for ALL containers are collected
 func (pc *ParallelCollector) CollectAll(ctx context.Context) error {
-	return pc.CollectMetricsParallel(ctx)
+	// Use comprehensive collector as primary method - ALWAYS collects ALL metrics
+	compCollector := NewComprehensiveCollector(pc.Collector)
+	if err := compCollector.CollectAllComprehensiveMetrics(ctx); err != nil {
+		utils.Log.WithError(err).Warn("⚠️  Comprehensive collection had errors, falling back to parallel collection")
+		// Fallback to parallel collection if comprehensive fails completely
+		return pc.CollectMetricsParallel(ctx)
+	}
+	utils.Log.Info("✅ Comprehensive metrics collection completed via parallel collector")
+	return nil
 }
 
 // CollectMetricsParallel collects metrics from all pods in parallel
@@ -186,7 +194,7 @@ func (pc *ParallelCollector) CollectMetricsParallel(ctx context.Context) error {
 	copy(remainingMetrics, metricsList)
 	metricsList = metricsList[:0] // Clear to prevent double processing
 	mu.Unlock()
-	
+
 	if len(remainingMetrics) > 0 {
 		// Use background context to avoid cancellation
 		bgCtx := context.Background()
@@ -226,81 +234,14 @@ func (pc *ParallelCollector) CollectMetricsParallel(ctx context.Context) error {
 }
 
 // collectPodMetricsWithStrategy collects metrics based on strategy
+// NOTE: Only StrategyBalanced is used - this is a fallback when comprehensive collector fails
 func (pc *ParallelCollector) collectPodMetricsWithStrategy(
 	ctx context.Context,
 	pod *corev1.Pod,
 	strategy CollectionStrategy,
 ) (*PodMetrics, error) {
-	switch strategy {
-	case StrategyFast:
-		// Fast collection: only critical metrics (<50ms)
-		return pc.buildPodMetricsFast(ctx, pod)
-	case StrategyBalanced:
-		// Balanced: all metrics (<200ms)
-		return pc.Collector.buildPodMetrics(ctx, pod)
-	case StrategyDeep:
-		// Deep: include logs and detailed events (<500ms)
-		return pc.buildPodMetricsDeep(ctx, pod)
-	default:
-		return pc.Collector.buildPodMetrics(ctx, pod)
-	}
-}
-
-// buildPodMetricsFast builds minimal metrics quickly
-func (pc *ParallelCollector) buildPodMetricsFast(ctx context.Context, pod *corev1.Pod) (*PodMetrics, error) {
-	// Get pod metrics (required)
-	podMetrics, err := pc.k8sClient.GetPodMetrics(ctx, pod.Namespace, pod.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pod metrics: %w", err)
-	}
-
-	// Build minimal metrics
-	metrics := &PodMetrics{
-		PodName:      pod.Name,
-		Namespace:    pod.Namespace,
-		NodeName:     pod.Spec.NodeName,
-		Timestamp:    time.Now(),
-		Phase:        string(pod.Status.Phase),
-		Ready:        isPodReady(pod),
-		Restarts:     getRestartCount(pod),
-	}
-
-	// Extract CPU and memory usage from metrics
-	if len(podMetrics.Containers) > 0 {
-		container := podMetrics.Containers[0]
-		cpu := container.Usage.Cpu().MilliValue()
-		memory := container.Usage.Memory().Value()
-
-		metrics.CPUUsageMillicores = float64(cpu)
-		metrics.MemoryUsageBytes = memory
-		metrics.ContainerName = container.Name
-	}
-
-	// Get limits from pod spec
-	if len(pod.Spec.Containers) > 0 {
-		container := pod.Spec.Containers[0]
-		if cpu := container.Resources.Limits["cpu"]; !cpu.IsZero() {
-			metrics.CPULimitMillicores = float64(cpu.MilliValue())
-		}
-		if memory := container.Resources.Limits["memory"]; !memory.IsZero() {
-			metrics.MemoryLimitBytes = memory.Value()
-		}
-	}
-
-	// Calculate utilizations
-	if metrics.CPULimitMillicores > 0 {
-		metrics.CPUUtilization = (metrics.CPUUsageMillicores / metrics.CPULimitMillicores) * 100.0
-	}
-	if metrics.MemoryLimitBytes > 0 {
-		metrics.MemoryUtilization = (float64(metrics.MemoryUsageBytes) / float64(metrics.MemoryLimitBytes)) * 100.0
-	}
-
-	return metrics, nil
-}
-
-// buildPodMetricsDeep builds comprehensive metrics including logs
-func (pc *ParallelCollector) buildPodMetricsDeep(ctx context.Context, pod *corev1.Pod) (*PodMetrics, error) {
-	// Use standard buildPodMetrics but could add log collection here
+	// Always use balanced strategy (comprehensive collector is primary method)
+	// This is only called as fallback when comprehensive collector fails
 	return pc.Collector.buildPodMetrics(ctx, pod)
 }
 
@@ -322,16 +263,6 @@ func isSystemPod(pod *corev1.Pod) bool {
 	return false
 }
 
-// isPodReady checks if pod is ready
-func isPodReady(pod *corev1.Pod) bool {
-	for _, condition := range pod.Status.Conditions {
-		if condition.Type == corev1.PodReady {
-			return condition.Status == corev1.ConditionTrue
-		}
-	}
-	return false
-}
-
 // getRestartCount gets the total restart count for a pod
 // GetBufferMetrics returns recent metrics from the circular buffer
 // ParallelCollector embeds *Collector, so it has access to the buffer
@@ -343,7 +274,6 @@ func (pc *ParallelCollector) GetBufferMetrics(limit int) []*PodMetrics {
 func (pc *ParallelCollector) GetBufferStats() map[string]interface{} {
 	return pc.Collector.GetBufferStats()
 }
-
 func getRestartCount(pod *corev1.Pod) int32 {
 	var restarts int32
 	for _, status := range pod.Status.ContainerStatuses {

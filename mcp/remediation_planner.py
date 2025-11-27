@@ -252,8 +252,9 @@ class RemediationPlanner:
     ) -> Optional[RemediationStrategy]:
         """Generate conservative strategy (slow, safe, high success)"""
         actions = []
+        issue_lower = issue_type.lower()
         
-        if issue_type.lower() in ["oomkilled", "oom", "high_memory"]:
+        if issue_lower in ["oomkilled", "oom", "high_memory", "memory_pressure"]:
             if deployment:
                 actions.append(RemediationAction(
                     type="deployment",
@@ -268,6 +269,28 @@ class RemediationPlanner:
                 actions.append(RemediationAction(
                     type="pod",
                     target=pod_context.get("name", "pod"),
+                    operation="evict",  # Evict is safer than restart for standalone pods
+                    parameters={"grace_period_seconds": 60},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["crashloopbackoff", "crash_loop", "crashloop"]:
+            if deployment:
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
                     operation="restart",
                     parameters={"grace_period_seconds": 60},
                     order=0,
@@ -275,18 +298,7 @@ class RemediationPlanner:
                     risk_level=RiskLevel.LOW
                 ))
         
-        elif issue_type.lower() in ["crashloopbackoff", "crash_loop"]:
-            actions.append(RemediationAction(
-                type="pod",
-                target=pod_context.get("name", "pod"),
-                operation="restart",
-                parameters={"grace_period_seconds": 60},
-                order=0,
-                estimated_time=120,
-                risk_level=RiskLevel.LOW
-            ))
-        
-        elif issue_type.lower() in ["high_cpu", "cpu_spike"]:
+        elif issue_lower in ["high_cpu", "cpu_spike", "cpu_throttling"]:
             if deployment:
                 actions.append(RemediationAction(
                     type="deployment",
@@ -295,6 +307,194 @@ class RemediationPlanner:
                     parameters={"replicas": 1, "direction": "up"},
                     order=0,
                     estimated_time=180,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="restart",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=60,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["imagepullbackoff", "errimagepull", "image_pull_error"]:
+            if deployment:
+                # For deployments, restart rollout may refresh credentials
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                # For standalone pods, restart to retry image pull
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="restart",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=60,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["networkerrors", "network_issues", "network_unavailable", "network_error"]:
+            if deployment:
+                # For deployments, rolling restart may resolve node-specific network issues
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                # For standalone pods, evict to reschedule on different node
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="evict",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=90,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["disk_pressure", "disk_full", "ephemeral_storage", "disk_usage"]:
+            if deployment:
+                # For deployments, rolling restart clears disk on each pod
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                # For standalone pods, restart clears temporary files
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="restart",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=60,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["pending", "unschedulable", "scheduling_failure", "scheduling"]:
+            # For scheduling issues, evict to allow rescheduling
+            if deployment:
+                # For deployments, scale up may create more scheduling options
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="scale",
+                    parameters={"replicas": 1, "direction": "up"},
+                    order=0,
+                    estimated_time=180,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                # For standalone pods, evict to reschedule
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="evict",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=90,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["not_ready", "readiness_failure", "readiness_probe"]:
+            if deployment:
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="restart",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=60,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["liveness_failure", "liveness_probe"]:
+            actions.append(RemediationAction(
+                type="pod",
+                target=pod_context.get("name", "pod"),
+                operation="restart",
+                parameters={"grace_period_seconds": 30},
+                order=0,
+                estimated_time=60,
+                risk_level=RiskLevel.LOW
+            ))
+        
+        elif issue_lower in ["resource_quota", "quota_exceeded"]:
+            if deployment:
+                # Try to scale down slightly to free resources
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="scale",
+                    parameters={"replicas": 1, "direction": "down"},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+        
+        elif issue_lower in ["node_pressure", "node_issue", "node_unavailable"]:
+            # Evict pods from problematic node
+            actions.append(RemediationAction(
+                type="pod",
+                target=pod_context.get("name", "pod"),
+                operation="evict",
+                parameters={"grace_period_seconds": 60},
+                order=0,
+                estimated_time=120,
+                risk_level=RiskLevel.MEDIUM
+            ))
+        
+        elif issue_lower in ["performance_degradation", "slow_response", "throughput_issue"]:
+            if deployment:
+                # Scale up for better performance
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="scale",
+                    parameters={"replicas": 1, "direction": "up"},
+                    order=0,
+                    estimated_time=180,
+                    risk_level=RiskLevel.LOW
+                ))
+                # Also increase resources if needed
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="increase_cpu",
+                    parameters={"factor": 1.3},
+                    order=1,
+                    estimated_time=90,
                     risk_level=RiskLevel.LOW
                 ))
         
@@ -344,19 +544,33 @@ class RemediationPlanner:
                     risk_level=RiskLevel.MEDIUM
                 ))
         
-        elif issue_type.lower() in ["crashloopbackoff", "crash_loop"]:
-            actions.append(RemediationAction(
-                type="pod",
-                target=pod_context.get("name", "pod"),
-                operation="restart",
-                parameters={"grace_period_seconds": 30},
-                order=0,
-                estimated_time=60,
-                risk_level=RiskLevel.MEDIUM
-            ))
-        
-        elif issue_type.lower() in ["high_cpu", "cpu_spike"]:
+        elif issue_type.lower() in ["crashloopbackoff", "crash_loop", "crashloop"]:
             if deployment:
+                # For deployments, restart rollout is better
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+            else:
+                # For standalone pods, restart
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="restart",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=60,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+        
+        elif issue_type.lower() in ["high_cpu", "cpu_spike", "cpu_throttling", "cpu_pressure"]:
+            if deployment:
+                # For high CPU, both vertical and horizontal scaling
                 actions.append(RemediationAction(
                     type="deployment",
                     target=deployment.get("name", "deployment"),
@@ -364,6 +578,81 @@ class RemediationPlanner:
                     parameters={"factor": 1.5},
                     order=0,
                     estimated_time=90,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+                # Also scale up for better distribution (horizontal scaling is powerful)
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="scale",
+                    parameters={"replicas": 1, "direction": "up"},
+                    order=1,
+                    estimated_time=60,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+                # Restart rollout to apply changes
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=2,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+            else:
+                # For standalone pods, evict is safer than restart
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="evict",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=90,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+        
+        elif issue_type.lower() in ["imagepullbackoff", "errimagepull"]:
+            if deployment:
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=90,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+            else:
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="restart",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=60,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+        
+        elif issue_type.lower() in ["networkerrors", "network_issues"]:
+            if deployment:
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+            else:
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="restart",
+                    parameters={"grace_period_seconds": 30},
+                    order=0,
+                    estimated_time=60,
                     risk_level=RiskLevel.MEDIUM
                 ))
         
@@ -388,11 +677,13 @@ class RemediationPlanner:
         pod_context: Dict[str, Any],
         deployment: Optional[Dict[str, Any]]
     ) -> Optional[RemediationStrategy]:
-        """Generate aggressive strategy (fast, higher risk)"""
+        """Generate aggressive strategy (fast, higher risk) - for urgent issues"""
         actions = []
+        issue_lower = issue_type.lower()
         
-        if issue_type.lower() in ["oomkilled", "oom", "high_memory"]:
+        if issue_lower in ["oomkilled", "oom", "high_memory", "memory_pressure"]:
             if deployment:
+                # Aggressive: Double memory + scale up immediately
                 actions.append(RemediationAction(
                     type="deployment",
                     target=deployment.get("name", "deployment"),
@@ -400,6 +691,72 @@ class RemediationPlanner:
                     parameters={"factor": 2.0},
                     order=0,
                     estimated_time=90,
+                    risk_level=RiskLevel.HIGH
+                ))
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="scale",
+                    parameters={"replicas": 2, "direction": "up"},
+                    order=1,
+                    estimated_time=60,
+                    risk_level=RiskLevel.HIGH
+                ))
+            else:
+                # For standalone pods, force delete for immediate recovery
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="force_delete",
+                    parameters={},
+                    order=0,
+                    estimated_time=30,
+                    risk_level=RiskLevel.HIGH
+                ))
+        
+        elif issue_lower in ["crashloopbackoff", "crash_loop", "crashloop"]:
+            if deployment:
+                # Aggressive: Force restart rollout
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=0,
+                    estimated_time=120,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+            else:
+                # For standalone pods, force delete
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="force_delete",
+                    parameters={},
+                    order=0,
+                    estimated_time=30,
+                    risk_level=RiskLevel.HIGH
+                ))
+        
+        elif issue_lower in ["high_cpu", "cpu_spike", "cpu_throttling"]:
+            if deployment:
+                # Aggressive: Double CPU + scale up 2 replicas
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="increase_cpu",
+                    parameters={"factor": 2.0},
+                    order=0,
+                    estimated_time=90,
+                    risk_level=RiskLevel.HIGH
+                ))
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="scale",
+                    parameters={"replicas": 2, "direction": "up"},
+                    order=1,
+                    estimated_time=60,
                     risk_level=RiskLevel.HIGH
                 ))
             else:
@@ -413,26 +770,25 @@ class RemediationPlanner:
                     risk_level=RiskLevel.HIGH
                 ))
         
-        elif issue_type.lower() in ["crashloopbackoff", "crash_loop"]:
-            actions.append(RemediationAction(
-                type="pod",
-                target=pod_context.get("name", "pod"),
-                operation="force_delete",
-                parameters={},
-                order=0,
-                estimated_time=30,
-                risk_level=RiskLevel.HIGH
-            ))
-        
-        elif issue_type.lower() in ["high_cpu", "cpu_spike"]:
+        elif issue_lower in ["networkerrors", "network_issues"]:
             if deployment:
                 actions.append(RemediationAction(
                     type="deployment",
                     target=deployment.get("name", "deployment"),
-                    operation="scale",
-                    parameters={"replicas": 2, "direction": "up"},
+                    operation="restart_rollout",
+                    parameters={},
                     order=0,
-                    estimated_time=60,
+                    estimated_time=120,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+            else:
+                actions.append(RemediationAction(
+                    type="pod",
+                    target=pod_context.get("name", "pod"),
+                    operation="force_delete",
+                    parameters={},
+                    order=0,
+                    estimated_time=30,
                     risk_level=RiskLevel.HIGH
                 ))
         
@@ -446,7 +802,7 @@ class RemediationPlanner:
             estimated_cost_impact=200.0,
             estimated_recovery_time=60,  # 1 minute
             risk_level=RiskLevel.HIGH,
-            reasoning="Aggressive approach with rapid changes and higher risk",
+            reasoning="Aggressive approach with rapid changes and higher risk - use for urgent issues",
             confidence=0.65
         )
     
@@ -517,9 +873,11 @@ class RemediationPlanner:
     ) -> Optional[RemediationStrategy]:
         """Generate performance-optimized strategy (maximize performance)"""
         actions = []
+        issue_lower = issue_type.lower()
         
-        if issue_type.lower() in ["oomkilled", "oom", "high_memory"]:
+        if issue_lower in ["oomkilled", "oom", "high_memory", "memory_pressure"]:
             if deployment:
+                # Performance: Large memory increase + scale up for throughput
                 actions.append(RemediationAction(
                     type="deployment",
                     target=deployment.get("name", "deployment"),
@@ -529,19 +887,30 @@ class RemediationPlanner:
                     estimated_time=90,
                     risk_level=RiskLevel.MEDIUM
                 ))
-                # Also scale up for performance
+                # Scale up for better performance and load distribution
                 actions.append(RemediationAction(
                     type="deployment",
                     target=deployment.get("name", "deployment"),
                     operation="scale",
-                    parameters={"replicas": 1, "direction": "up"},
+                    parameters={"replicas": 2, "direction": "up"},
                     order=1,
                     estimated_time=60,
                     risk_level=RiskLevel.MEDIUM
                 ))
+                # Restart rollout to apply changes
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=2,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
         
-        elif issue_type.lower() in ["high_cpu", "cpu_spike"]:
+        elif issue_lower in ["high_cpu", "cpu_spike", "cpu_throttling", "cpu_pressure"]:
             if deployment:
+                # Performance: Double CPU + scale up significantly
                 actions.append(RemediationAction(
                     type="deployment",
                     target=deployment.get("name", "deployment"),
@@ -551,6 +920,7 @@ class RemediationPlanner:
                     estimated_time=90,
                     risk_level=RiskLevel.MEDIUM
                 ))
+                # Scale up for horizontal scaling and better throughput
                 actions.append(RemediationAction(
                     type="deployment",
                     target=deployment.get("name", "deployment"),
@@ -558,6 +928,47 @@ class RemediationPlanner:
                     parameters={"replicas": 2, "direction": "up"},
                     order=1,
                     estimated_time=60,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+                # Restart rollout to apply changes
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="restart_rollout",
+                    parameters={},
+                    order=2,
+                    estimated_time=120,
+                    risk_level=RiskLevel.LOW
+                ))
+        
+        elif issue_lower in ["performance_degradation", "slow_response", "throughput_issue"]:
+            if deployment:
+                # Performance: Scale up + increase resources
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="scale",
+                    parameters={"replicas": 2, "direction": "up"},
+                    order=0,
+                    estimated_time=60,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="increase_cpu",
+                    parameters={"factor": 1.5},
+                    order=1,
+                    estimated_time=90,
+                    risk_level=RiskLevel.MEDIUM
+                ))
+                actions.append(RemediationAction(
+                    type="deployment",
+                    target=deployment.get("name", "deployment"),
+                    operation="increase_memory",
+                    parameters={"factor": 1.5},
+                    order=2,
+                    estimated_time=90,
                     risk_level=RiskLevel.MEDIUM
                 ))
         
@@ -571,7 +982,7 @@ class RemediationPlanner:
             estimated_cost_impact=300.0,  # Higher cost
             estimated_recovery_time=90,  # 1.5 minutes
             risk_level=RiskLevel.MEDIUM,
-            reasoning="Performance-optimized approach maximizing throughput",
+            reasoning="Performance-optimized approach maximizing throughput and response time",
             confidence=0.85
         )
 

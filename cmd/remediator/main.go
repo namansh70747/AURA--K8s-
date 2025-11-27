@@ -53,7 +53,7 @@ func main() {
 	}
 	debug.SetGCPercent(gcPercent)
 	utils.Log.Infof("Set GC percent to %d", gcPercent)
-	
+
 	// Setup file logging with rotation if configured
 	if logDir := os.Getenv("LOG_DIR"); logDir != "" {
 		maxSizeMB := 100
@@ -88,27 +88,27 @@ func main() {
 		}
 		utils.Log.Warn("Using default DATABASE_URL (development only)")
 	}
-	
+
 	// Validate MCP server URL
 	mcpURL := config.GetServiceURL("MCP_SERVER", "8000")
 	if mcpURL == "" {
 		utils.Log.Warn("MCP_SERVER_URL not set, AI-powered remediation will be disabled")
 	}
-	
+
 	// Validate remediation interval (must be >= 5s for performance)
 	interval := getEnvDuration("REMEDIATION_INTERVAL", 30*time.Second)
 	if interval < 5*time.Second {
 		utils.Log.Warnf("Remediation interval too low (%v), setting to minimum 5s", interval)
 		interval = 5 * time.Second
 	}
-	
+
 	// Preventive remediation runs faster (every 10s by default) for quick response
 	preventiveInterval := getEnvDuration("PREVENTIVE_REMEDIATION_INTERVAL", 10*time.Second)
 	if preventiveInterval < 2*time.Second {
 		utils.Log.Warnf("Preventive remediation interval too low (%v), setting to minimum 2s", preventiveInterval)
 		preventiveInterval = 2 * time.Second
 	}
-	
+
 	metricsPort := getEnv("METRICS_PORT", "9091")
 
 	// Initialize Kubernetes client
@@ -117,7 +117,7 @@ func main() {
 		utils.Log.WithError(err).Fatal("Failed to initialize Kubernetes client")
 	}
 	utils.Log.Info("Kubernetes client initialized")
-	
+
 	// Initialize database connection
 	postgresDB, err := storage.NewPostgresDB(dbURL)
 	if err != nil {
@@ -135,7 +135,7 @@ func main() {
 
 	// Initialize remediator
 	remediator := remediation.NewRemediator(k8sClient, postgresDB, mcpURL)
-	
+
 	// Enable dry-run mode if configured
 	if getEnv("DRY_RUN", "false") == "true" {
 		remediator.SetDryRun(true)
@@ -145,24 +145,24 @@ func main() {
 	// Start health and metrics server
 	go func() {
 		mux := http.NewServeMux()
-		
+
 		// Health check endpoint with dependency validation
 		mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			// Deep health check
 			healthy := true
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			
+
 			// Check database connection
 			if err := postgresDB.Ping(ctx); err != nil {
 				healthy = false
 			}
-			
+
 			// Test K8s client
 			if _, err := k8sClient.ListPods(ctx, ""); err != nil {
 				healthy = false
 			}
-			
+
 			// Check MCP server (if configured) - non-critical, only degrades if unavailable
 			if mcpURL != "" {
 				mcpClient := &http.Client{Timeout: 5 * time.Second}
@@ -175,7 +175,7 @@ func main() {
 					resp.Body.Close()
 				}
 			}
-			
+
 			if healthy {
 				metrics.SetServiceHealth("remediator", true)
 				w.WriteHeader(http.StatusOK)
@@ -186,27 +186,27 @@ func main() {
 				w.Write([]byte("UNHEALTHY"))
 			}
 		})
-		
+
 		// Prometheus metrics endpoint
 		mux.Handle("/metrics", promhttp.Handler())
-		
+
 		// API endpoint for immediate preventive action triggering
 		mux.HandleFunc("/api/v1/trigger-preventive", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			
+
 			// Trigger preventive remediation immediately
 			triggerCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			
+
 			if err := remediator.ProcessPreventiveRemediations(triggerCtx); err != nil {
 				utils.Log.WithError(err).Error("Failed to trigger preventive remediation via API")
 				http.Error(w, fmt.Sprintf("Failed to trigger preventive remediation: %v", err), http.StatusInternalServerError)
 				return
 			}
-			
+
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -215,7 +215,7 @@ func main() {
 				"time":    time.Now().Format(time.RFC3339),
 			})
 		})
-		
+
 		utils.Log.Infof("Starting health and metrics server on :%s", metricsPort)
 		if err := http.ListenAndServe(":"+metricsPort, mux); err != nil {
 			utils.Log.WithError(err).Error("Health server failed")
@@ -264,7 +264,7 @@ func main() {
 				utils.Log.Infof("Remediation completed in %.2fs", duration.Seconds())
 				metrics.SetServiceHealth("remediator", true)
 			}
-			
+
 		case <-preventiveTicker.C:
 			// Process preventive remediations (faster interval for proactive actions)
 			preventiveStart := time.Now()
@@ -276,7 +276,7 @@ func main() {
 				utils.Log.Infof("Preventive remediation completed in %.2fs", preventiveDuration.Seconds())
 				metrics.RemediationsTotal.WithLabelValues("preventive_success").Inc()
 			}
-			
+
 		case <-cleanupTicker.C:
 			// Cleanup expired warnings
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -291,17 +291,17 @@ func main() {
 		case <-stop:
 			utils.Log.Info("Shutting down remediator gracefully...")
 			cancel() // Cancel context to stop ongoing operations
-			
+
 			// Create shutdown timeout context
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer shutdownCancel()
-			
+
 			// Close database with timeout
 			done := make(chan error, 1)
 			go func() {
 				done <- postgresDB.Close()
 			}()
-			
+
 			select {
 			case err := <-done:
 				if err != nil {
@@ -310,7 +310,7 @@ func main() {
 			case <-shutdownCtx.Done():
 				utils.Log.Warn("Shutdown timeout reached, forcing exit")
 			}
-			
+
 			utils.Log.Info("Remediator stopped")
 			return
 		}

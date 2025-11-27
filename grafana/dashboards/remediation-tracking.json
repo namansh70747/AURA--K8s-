@@ -70,7 +70,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as total_remediations\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as total_remediations\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -154,7 +154,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN 0.0\n    ELSE COALESCE((COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)), 0.0)\n  END as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN 0.0\n    ELSE COALESCE((COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)), 0.0)\n  END as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -230,7 +230,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  CASE\n    WHEN COUNT(*) FILTER (WHERE completed_at IS NOT NULL) = 0 THEN 0.0\n    ELSE COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - executed_at)) FILTER (WHERE completed_at IS NOT NULL)), 0.0)\n  END as avg_duration\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  CASE\n    WHEN COUNT(*) FILTER (WHERE completed_at IS NOT NULL) = 0 THEN 0.0\n    ELSE COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - executed_at)) FILTER (WHERE completed_at IS NOT NULL)), 0.0)\n  END as avg_duration\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -444,7 +444,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COUNT(*) FILTER (WHERE success = true) as \"Successful\",\n  COUNT(*) FILTER (WHERE success = false) as \"Failed\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COUNT(*) FILTER (WHERE success = true) as \"Successful\",\n  COUNT(*) FILTER (WHERE success = false) as \"Failed\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -545,7 +545,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))), 0.0) as \"Avg Duration\",\n  COALESCE(MAX(EXTRACT(EPOCH FROM (completed_at - executed_at))), 0.0) as \"Max Duration\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND completed_at IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - executed_at))), 0.0) as \"Avg Duration\",\n  COALESCE(MAX(EXTRACT(EPOCH FROM (completed_at - executed_at))), 0.0) as \"Max Duration\"\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND completed_at IS NOT NULL\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -702,7 +702,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  executed_at as timestamp,\n  pod_name,\n  namespace,\n  COALESCE(strategy, action) as strategy,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - executed_at)) as duration,\n  error_message,\n  action as actions_taken\nFROM remediations\nWHERE $__timeFilter(executed_at) AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nORDER BY timestamp DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  executed_at as timestamp,\n  pod_name,\n  namespace,\n  COALESCE(strategy, 'reactive') as strategy,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - executed_at)) as duration,\n  COALESCE(error_message, '') as error_message,\n  action as actions_taken,\n  COALESCE(ai_source, 'Unknown') as ai_source,\n  COALESCE(\n    action_details::json->>'reasoning',\n    action_details::json->>'plan_reasoning',\n    action_details::json->>'message',\n    CASE \n      WHEN action_details::json->>'reasoning' IS NULL AND action_details::json->>'message' IS NULL THEN 'Remediation executed successfully'\n      ELSE ''\n    END\n  ) as reasoning,\n  action_details::json->'actions' as action_details_array\nFROM remediations\nWHERE $__timeFilter(executed_at) AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nORDER BY timestamp DESC\nLIMIT 100",
           "refId": "A",
           "select": [
             [
@@ -802,7 +802,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(strategy, 'other') as strategy,\n  COALESCE(COUNT(*), 0) as count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \nGROUP BY time, strategy\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(strategy, 'other') as strategy,\n  COALESCE(COUNT(*), 0) as count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \nGROUP BY time, strategy\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -982,7 +982,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1026,7 +1026,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1078,7 +1078,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1130,7 +1130,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1174,7 +1174,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1226,7 +1226,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1278,7 +1278,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1322,7 +1322,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1374,7 +1374,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1426,7 +1426,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1470,7 +1470,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1522,7 +1522,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1574,7 +1574,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1618,7 +1618,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1670,7 +1670,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1722,7 +1722,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1766,7 +1766,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1818,7 +1818,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1870,7 +1870,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1914,7 +1914,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1966,7 +1966,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2018,7 +2018,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2062,7 +2062,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2114,7 +2114,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2166,7 +2166,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2210,7 +2210,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2262,7 +2262,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2314,7 +2314,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2358,7 +2358,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2410,7 +2410,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2462,7 +2462,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2506,7 +2506,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2558,7 +2558,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2610,7 +2610,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2654,7 +2654,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2706,7 +2706,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2758,7 +2758,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2802,7 +2802,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2854,7 +2854,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -2906,7 +2906,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2950,7 +2950,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {

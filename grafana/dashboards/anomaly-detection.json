@@ -339,7 +339,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -421,7 +421,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, anomaly_type, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time, anomaly_type ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, anomaly_type, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time, anomaly_type ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -462,7 +462,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, CASE WHEN confidence > 0.9 THEN 'critical' WHEN confidence > 0.7 THEN 'high' WHEN confidence > 0.5 THEN 'medium' ELSE 'low' END as severity, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time, severity ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, CASE WHEN confidence > 0.9 THEN 'critical' WHEN confidence > 0.7 THEN 'high' WHEN confidence > 0.5 THEN 'medium' ELSE 'low' END as severity, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time, severity ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -503,7 +503,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(AVG(confidence), 0.0) as avg_confidence, COALESCE(MIN(confidence), 0.0) as min_confidence, COALESCE(MAX(confidence), 0.0) as max_confidence FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(AVG(confidence), 0.0) as avg_confidence, COALESCE(MIN(confidence), 0.0) as min_confidence, COALESCE(MAX(confidence), 0.0) as max_confidence FROM ml_predictions WHERE $__timeFilter(timestamp) AND is_anomaly = 1 GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -544,7 +544,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, namespace, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage') AND is_anomaly = 1 GROUP BY time, namespace ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, namespace, COALESCE(COUNT(*), 0) as value FROM ml_predictions WHERE $__timeFilter(timestamp) AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage') AND is_anomaly = 1 GROUP BY time, namespace ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -585,7 +585,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(AVG(oom_score), 0.0) as avg_oom, COALESCE(MAX(oom_score), 0.0) as max_oom FROM ml_predictions WHERE $__timeFilter(timestamp) AND oom_score > 0 GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(AVG(oom_score), 0.0) as avg_oom, COALESCE(MAX(oom_score), 0.0) as max_oom FROM ml_predictions WHERE $__timeFilter(timestamp) AND oom_score > 0 GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -626,7 +626,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(AVG(crash_loop_score), 0.0) as avg_crash, COALESCE(MAX(crash_loop_score), 0.0) as max_crash FROM ml_predictions WHERE $__timeFilter(timestamp) AND crash_loop_score > 0 GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(AVG(crash_loop_score), 0.0) as avg_crash, COALESCE(MAX(crash_loop_score), 0.0) as max_crash FROM ml_predictions WHERE $__timeFilter(timestamp) AND crash_loop_score > 0 GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -667,7 +667,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(AVG(high_cpu_score), 0.0) as avg_cpu, COALESCE(MAX(high_cpu_score), 0.0) as max_cpu FROM ml_predictions WHERE $__timeFilter(timestamp) AND high_cpu_score > 0 GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(AVG(high_cpu_score), 0.0) as avg_cpu, COALESCE(MAX(high_cpu_score), 0.0) as max_cpu FROM ml_predictions WHERE $__timeFilter(timestamp) AND high_cpu_score > 0 GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -708,7 +708,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(AVG(network_error_score), 0.0) as avg_net, COALESCE(MAX(network_error_score), 0.0) as max_net FROM ml_predictions WHERE $__timeFilter(timestamp) AND network_error_score > 0 GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(AVG(network_error_score), 0.0) as avg_net, COALESCE(MAX(network_error_score), 0.0) as max_net FROM ml_predictions WHERE $__timeFilter(timestamp) AND network_error_score > 0 GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"

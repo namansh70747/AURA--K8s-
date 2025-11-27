@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-oom-pod
+  namespace: default
+  labels:
+    app: test-oom
+spec:
+  containers:
+  - name: memory-stress
+    image: polinux/stress
+    resources:
+      requests:
+        memory: "100Mi"
+        cpu: "100m"
+      limits:
+        memory: "150Mi"  # Low limit to trigger OOM
+        cpu: "200m"
+    args: ["--vm", "1", "--vm-bytes", "200M", "--vm-hang", "0"]  # Will exceed 150Mi limit
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-high-cpu-deployment
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-high-cpu
+  template:
+    metadata:
+      labels:
+        app: test-high-cpu
+    spec:
+      containers:
+      - name: cpu-stress
+        image: polinux/stress
+        resources:
+          requests:
+            memory: "100Mi"
+            cpu: "100m"
+          limits:
+            memory: "200Mi"
+            cpu: "200m"  # Low CPU limit to trigger high CPU
+        args: ["--cpu", "2", "--timeout", "600s"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-crash-loop-deployment
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-crash-loop
+  template:
+    metadata:
+      labels:
+        app: test-crash-loop
+    spec:
+      containers:
+      - name: crash-container
+        image: busybox
+        command: ["/bin/sh", "-c", "exit 1"]  # Will crash immediately
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-network-issues-pod
+  namespace: default
+  labels:
+    app: test-network
+spec:
+  containers:
+  - name: network-test
+    image: nginx:latest
+    resources:
+      requests:
+        memory: "50Mi"
+        cpu: "50m"
+      limits:
+        memory: "100Mi"
+        cpu: "100m"
+

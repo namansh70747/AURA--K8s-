@@ -113,10 +113,10 @@ type Remediation struct {
 // Currently, the ML service uses a flexible map[string]float64 for features,
 // but this struct documents the feature schema for reference.
 // Only the actively used features are listed here to reduce confusion.
-// 
+//
 // The actual features sent to the ML service (as defined in pkg/ml/client.go):
 // 1. cpu_usage - CPU utilization percentage
-// 2. memory_usage - Memory utilization percentage  
+// 2. memory_usage - Memory utilization percentage
 // 3. disk_usage - Disk usage percentage
 // 4. network_bytes_sec - Network bytes per second
 // 5. error_rate - Network error rate
@@ -132,19 +132,19 @@ type Remediation struct {
 // NOTE: Additional features (trends, statistical features, time-based features)
 // can be added here in the future when they are implemented in the feature engineering pipeline.
 type MLFeatures struct {
-	CPUUsage            float64 `json:"cpu_usage"`              // CPU utilization percentage
-	MemoryUsage         float64 `json:"memory_usage"`           // Memory utilization percentage
-	DiskUsage           float64 `json:"disk_usage"`             // Disk usage percentage
-	NetworkBytesSec     float64 `json:"network_bytes_sec"`      // Network bytes per second
-	ErrorRate           float64 `json:"error_rate"`             // Network error rate
-	LatencyMs           float64 `json:"latency_ms"`             // Estimated latency in milliseconds
-	RestartCount        float64 `json:"restart_count"`          // Number of pod restarts
-	AgeMinutes          float64 `json:"age_minutes"`            // Pod age in minutes
-	CPUMemoryRatio      float64 `json:"cpu_memory_ratio"`       // CPU to memory utilization ratio
-	ResourcePressure    float64 `json:"resource_pressure"`      // Average of CPU and memory utilization
-	ErrorLatencyProduct float64 `json:"error_latency_product"`  // Error rate * latency (composite metric)
-	NetworkPerCPU       float64 `json:"network_per_cpu"`        // Network bytes per CPU unit
-	IsCritical          float64 `json:"is_critical"`            // Boolean flag for critical conditions
+	CPUUsage            float64 `json:"cpu_usage"`             // CPU utilization percentage
+	MemoryUsage         float64 `json:"memory_usage"`          // Memory utilization percentage
+	DiskUsage           float64 `json:"disk_usage"`            // Disk usage percentage
+	NetworkBytesSec     float64 `json:"network_bytes_sec"`     // Network bytes per second
+	ErrorRate           float64 `json:"error_rate"`            // Network error rate
+	LatencyMs           float64 `json:"latency_ms"`            // Estimated latency in milliseconds
+	RestartCount        float64 `json:"restart_count"`         // Number of pod restarts
+	AgeMinutes          float64 `json:"age_minutes"`           // Pod age in minutes
+	CPUMemoryRatio      float64 `json:"cpu_memory_ratio"`      // CPU to memory utilization ratio
+	ResourcePressure    float64 `json:"resource_pressure"`     // Average of CPU and memory utilization
+	ErrorLatencyProduct float64 `json:"error_latency_product"` // Error rate * latency (composite metric)
+	NetworkPerCPU       float64 `json:"network_per_cpu"`       // Network bytes per CPU unit
+	IsCritical          float64 `json:"is_critical"`           // Boolean flag for critical conditions
 }
 
 // MLPrediction represents the output of ML model prediction
@@ -205,16 +205,16 @@ type AnomalyPrediction struct {
 
 // EarlyWarning represents a generated early warning for predictive anomaly detection
 type EarlyWarning struct {
-	ID                string            `json:"id"`
-	PodName           string            `json:"pod_name"`
-	Namespace         string            `json:"namespace"`
-	WarningType       string            `json:"warning_type"`        // e.g., "CPU Spike Predicted", "Memory Leak Detected"
-	Severity          string            `json:"severity"`             // Critical, High, Medium, Low
-	RiskScore         float64           `json:"risk_score"`           // 0-100
-	TimeToAnomaly     time.Duration     `json:"time_to_anomaly"`     // Estimated time until anomaly occurs
-	Confidence        float64           `json:"confidence"`           // Confidence in the prediction (0-1)
-	RecommendedAction string            `json:"recommended_action"`   // e.g., "Scale up deployment", "Increase memory limits"
+	ID                string             `json:"id"`
+	PodName           string             `json:"pod_name"`
+	Namespace         string             `json:"namespace"`
+	WarningType       string             `json:"warning_type"`       // e.g., "CPU Spike Predicted", "Memory Leak Detected"
+	Severity          string             `json:"severity"`           // Critical, High, Medium, Low
+	RiskScore         float64            `json:"risk_score"`         // 0-100
+	TimeToAnomaly     time.Duration      `json:"time_to_anomaly"`    // Estimated time until anomaly occurs
+	Confidence        float64            `json:"confidence"`         // Confidence in the prediction (0-1)
+	RecommendedAction string             `json:"recommended_action"` // e.g., "Scale up deployment", "Increase memory limits"
 	PredictedMetrics  map[string]float64 `json:"predicted_metrics"`  // Key predicted metrics at anomaly time
-	Description       string            `json:"description"`
-	CreatedAt         time.Time         `json:"created_at"`
+	Description       string             `json:"description"`
+	CreatedAt         time.Time          `json:"created_at"`
 }
