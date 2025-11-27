@@ -15,6 +15,15 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Dict, List, Optional, Any
 import httpx
 import json
+from dotenv import load_dotenv
+
+# Load environment variables from .env.local file
+env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.local')
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    # Also try loading from .env if .env.local doesn't exist
+    load_dotenv()
 
 # Use uvloop for faster event loop (production optimization)
 try:
@@ -101,6 +110,13 @@ from slowapi.errors import RateLimitExceeded
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Log that environment variables were loaded
+env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.local')
+if os.path.exists(env_path):
+    logger.info(f"✅ Loaded environment variables from {env_path}")
+else:
+    logger.info("ℹ️  Using environment variables from system or .env file")
+
 # Ollama configuration (needed for lifespan)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
@@ -127,7 +143,7 @@ else:
         logger.warning("⚠️  Gemini package not installed (pip install google-generativeai), using Ollama only")
     GEMINI_MODEL = None
 
-# Groq API configuration
+# Groq API configuration - read from environment variable only (no hardcoded default)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")  # Updated to current model  # Fast and capable model
