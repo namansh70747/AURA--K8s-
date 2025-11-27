@@ -897,28 +897,6 @@ xdg-open http://localhost:3000  # Linux
 # Navigate to Dashboards → AURA K8s folder
 ```
 
-### Dashboard Screenshots
-
-#### Dashboard List
-![Grafana Dashboards List](docs/images/grafana-dashboards-list.png)
-
-*All 8 AURA K8s dashboards organized in the AURA K8s folder*
-
-#### Main Overview Dashboard
-![Grafana Main Overview](docs/images/grafana-main-overview.png)
-
-*System-wide health metrics and overview*
-
-#### Anomaly Detection Dashboard
-![Grafana Anomaly Detection](docs/images/grafana-anomaly-detection.png)
-
-*Real-time anomaly detection and monitoring*
-
-#### AI Predictions Dashboard
-![Grafana AI Predictions](docs/images/grafana-ai-predictions.png)
-
-*ML model predictions and analytics*
-
 ---
 
 ## 🔍 Troubleshooting
@@ -1051,68 +1029,5 @@ MIT License - see LICENSE file for details
 ---
 
 **Status:** ✅ Production Ready | **ML Accuracy:** 96.7% | **Cost:** $0 (fully local)
-
----
-
-## 🧪 Testing & Verification
-
-### End-to-End Test Results
-
-After deploying test pods with resource stress, the system successfully:
-
-✅ **Metrics Collection**: Collected metrics from test pods every 15 seconds  
-✅ **Predictive Forecasting**: Generated forecasts with 5-minute prediction horizon  
-✅ **Early Warnings**: Created warnings with risk scores and time-to-anomaly estimates  
-✅ **Anomaly Detection**: Detected anomalies with confidence scores  
-
-#### Test Pod Deployment
-
-```bash
-# Deploy test pods that trigger anomalies
-kubectl apply -f test-remediation-pod.yaml
-
-# This creates:
-# - high-cpu-remedy-test: CPU stress pod
-# - memory-leak-remedy-test: Memory stress pod
-# - crash-loop-remedy-test: Crash loop pod
-```
-
-#### Verification Commands
-
-```bash
-# Check metrics collection
-docker exec aura-timescaledb psql -U aura -d aura_metrics -c "
-  SELECT COUNT(*) as total_metrics, 
-         COUNT(DISTINCT pod_name) as unique_pods 
-  FROM pod_metrics 
-  WHERE timestamp > NOW() - INTERVAL '10 minutes';
-"
-
-# Check early warnings
-docker exec aura-timescaledb psql -U aura -d aura_metrics -c "
-  SELECT pod_name, risk_score, severity, time_to_anomaly_seconds 
-  FROM early_warnings 
-  ORDER BY created_at DESC 
-  LIMIT 5;
-"
-
-# Check predictions
-docker exec aura-timescaledb psql -U aura -d aura_metrics -c "
-  SELECT pod_name, anomaly_type, confidence, timestamp 
-  FROM ml_predictions 
-  ORDER BY timestamp DESC 
-  LIMIT 10;
-"
-```
-
-#### Expected Results
-
-- **Metrics**: 20+ metrics collected per minute
-- **Predictions**: ML predictions generated every 30 seconds
-- **Forecasts**: Predictive forecasts generated every 5 seconds
-- **Warnings**: Early warnings created when anomalies are predicted
-- **Remediation**: Automatic remediation actions triggered for detected issues
-
----
 
 For issues or questions, please open a GitHub issue.

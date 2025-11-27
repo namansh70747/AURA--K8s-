@@ -1408,8 +1408,27 @@ def create_issues_from_predictions(conn: "connection") -> int:
                 issues_created = cur.rowcount
                 conn.commit()
                 
+                # Link early warnings to issues after creation
                 for (issue_id, pod_name, namespace, issue_type, severity, _, _, _, _, _) in issue_values:
                     logger.info(f"      🔴 Issue created: {namespace}/{pod_name} - {issue_type} ({severity})")
+                    # Link any active warnings for this pod/namespace to the new issue
+                    try:
+                        cur.execute("""
+                            UPDATE early_warnings
+                            SET issue_id = %s
+                            WHERE pod_name = %s
+                                AND namespace = %s
+                                AND (expires_at IS NULL OR expires_at > NOW())
+                                AND (acknowledged IS NULL OR acknowledged = FALSE)
+                                AND issue_id IS NULL
+                        """, (issue_id, pod_name, namespace))
+                        warnings_linked = cur.rowcount
+                        if warnings_linked > 0:
+                            logger.debug(f"      Linked {warnings_linked} warning(s) to issue {issue_id}")
+                        conn.commit()
+                    except psycopg2.Error as link_err:
+                        logger.warning(f"Failed to link warnings to issue {issue_id}: {link_err}")
+                        conn.rollback()
             except psycopg2.Error as e:
                 logger.warning(f"Database error creating issues: {e}")
                 conn.rollback()
@@ -1545,8 +1564,27 @@ def create_issues_from_thresholds(conn: "connection") -> int:
                 issues_created = cur.rowcount
                 conn.commit()
                 
+                # Link early warnings to issues after creation
                 for (issue_id, pod_name, namespace, issue_type, severity, _, _, _, _, _) in issue_values:
                     logger.info(f"      🔴 Threshold issue created: {namespace}/{pod_name} - {issue_type} ({severity})")
+                    # Link any active warnings for this pod/namespace to the new issue
+                    try:
+                        cur.execute("""
+                            UPDATE early_warnings
+                            SET issue_id = %s
+                            WHERE pod_name = %s
+                                AND namespace = %s
+                                AND (expires_at IS NULL OR expires_at > NOW())
+                                AND (acknowledged IS NULL OR acknowledged = FALSE)
+                                AND issue_id IS NULL
+                        """, (issue_id, pod_name, namespace))
+                        warnings_linked = cur.rowcount
+                        if warnings_linked > 0:
+                            logger.debug(f"      Linked {warnings_linked} warning(s) to issue {issue_id}")
+                        conn.commit()
+                    except psycopg2.Error as link_err:
+                        logger.warning(f"Failed to link warnings to issue {issue_id}: {link_err}")
+                        conn.rollback()
             except psycopg2.Error as e:
                 logger.warning(f"Database error creating threshold issues: {e}")
                 conn.rollback()

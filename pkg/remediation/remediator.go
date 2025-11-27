@@ -20,6 +20,7 @@ import (
 	"github.com/namansh70747/aura-k8s/pkg/storage"
 	"github.com/namansh70747/aura-k8s/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -48,6 +49,7 @@ type RemediationPlan struct {
 	Reasoning  string              `json:"reasoning"`
 	Confidence float64             `json:"confidence"`
 	RiskLevel  string              `json:"risk_level"`
+	AISource   string              `json:"ai_source,omitempty"` // Track AI source: "Ollama", "Gemini", or "Fallback"
 }
 
 type RemediationAction struct {
@@ -261,33 +263,78 @@ func (r *Remediator) ProcessPreventiveRemediations(ctx context.Context) error {
 			continue
 		}
 
-		// Check if warning is still valid (not expired)
-		if warning.TimeToAnomaly > 0 && warning.TimeToAnomaly < 30*time.Second {
+		// CRITICAL: Only process warnings with enough time before anomaly occurs
+		// We need at least 2 minutes to execute preventive actions effectively
+		// This ensures remediation happens BEFORE the predicted anomaly time
+		minTimeBeforeAnomaly := 2 * time.Minute
+		if warning.TimeToAnomaly > 0 && warning.TimeToAnomaly < minTimeBeforeAnomaly {
 			utils.Log.WithFields(map[string]interface{}{
 				"pod":             warning.PodName,
 				"namespace":       warning.Namespace,
 				"time_to_anomaly": warning.TimeToAnomaly,
-			}).Warn("Warning time-to-anomaly is very short, may be too late for preventive action")
+				"min_required":    minTimeBeforeAnomaly,
+			}).Warn("⚠️  Warning time-to-anomaly too short for preventive action, skipping (too late)")
+			continue // Skip this warning - not enough time
 		}
 
-		// Execute preventive action
-		if err := r.preventiveRemed.ExecutePreventiveAction(ctx, warning); err != nil {
-			utils.Log.WithError(err).WithFields(map[string]interface{}{
-				"pod":       warning.PodName,
-				"namespace": warning.Namespace,
-				"severity":  warning.Severity,
-			}).Error("Failed to execute preventive action")
-			failureCount++
-			metrics.RemediationsTotal.WithLabelValues("preventive_failed").Inc()
-		} else {
+		// ENHANCED: Use AI-powered preventive remediation via MCP server for comprehensive actions
+		// This provides intelligent, context-aware preventive actions instead of simple scale_up/increase_resources
+		if r.mcpURL != "" {
 			utils.Log.WithFields(map[string]interface{}{
-				"pod":       warning.PodName,
-				"namespace": warning.Namespace,
-				"severity":  warning.Severity,
-				"action":    warning.RecommendedAction,
-			}).Info("✅ Preventive action executed successfully")
-			successCount++
-			metrics.RemediationsTotal.WithLabelValues("preventive_success").Inc()
+				"pod":             warning.PodName,
+				"namespace":       warning.Namespace,
+				"warning_type":    warning.WarningType,
+				"time_to_anomaly": warning.TimeToAnomaly,
+				"risk_score":      warning.RiskScore,
+			}).Info("🤖 Using AI-powered preventive remediation for early warning")
+
+			if err := r.processPreventiveWithAI(ctx, warning); err != nil {
+				utils.Log.WithError(err).WithFields(map[string]interface{}{
+					"pod":       warning.PodName,
+					"namespace": warning.Namespace,
+				}).Warn("AI-powered preventive remediation failed, falling back to simple action")
+
+				// Fallback to simple preventive action if AI fails
+				if err := r.preventiveRemed.ExecutePreventiveAction(ctx, warning); err != nil {
+					utils.Log.WithError(err).WithFields(map[string]interface{}{
+						"pod":       warning.PodName,
+						"namespace": warning.Namespace,
+						"severity":  warning.Severity,
+					}).Error("Failed to execute fallback preventive action")
+					failureCount++
+					metrics.RemediationsTotal.WithLabelValues("preventive_failed").Inc()
+					continue
+				}
+			} else {
+				utils.Log.WithFields(map[string]interface{}{
+					"pod":       warning.PodName,
+					"namespace": warning.Namespace,
+					"severity":  warning.Severity,
+				}).Info("✅ AI-powered preventive action executed successfully")
+				successCount++
+				metrics.RemediationsTotal.WithLabelValues("preventive_success").Inc()
+				continue
+			}
+		} else {
+			// No MCP server - use simple preventive action
+			if err := r.preventiveRemed.ExecutePreventiveAction(ctx, warning); err != nil {
+				utils.Log.WithError(err).WithFields(map[string]interface{}{
+					"pod":       warning.PodName,
+					"namespace": warning.Namespace,
+					"severity":  warning.Severity,
+				}).Error("Failed to execute preventive action")
+				failureCount++
+				metrics.RemediationsTotal.WithLabelValues("preventive_failed").Inc()
+			} else {
+				utils.Log.WithFields(map[string]interface{}{
+					"pod":       warning.PodName,
+					"namespace": warning.Namespace,
+					"severity":  warning.Severity,
+					"action":    warning.RecommendedAction,
+				}).Info("✅ Preventive action executed successfully")
+				successCount++
+				metrics.RemediationsTotal.WithLabelValues("preventive_success").Inc()
+			}
 		}
 
 		// Small delay between actions (reduced for faster response)
@@ -302,34 +349,210 @@ func (r *Remediator) ProcessPreventiveRemediations(ctx context.Context) error {
 	return nil
 }
 
+// processPreventiveWithAI uses MCP server to generate AI-powered preventive remediation plan
+// CRITICAL: This ensures actions are executed BEFORE the predicted anomaly time
+func (r *Remediator) processPreventiveWithAI(ctx context.Context, warning *metrics.EarlyWarning) error {
+	// Get pod information
+	pod, err := r.k8sClient.GetPod(ctx, warning.Namespace, warning.PodName)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "NotFound") {
+			utils.Log.WithFields(map[string]interface{}{
+				"pod":       warning.PodName,
+				"namespace": warning.Namespace,
+			}).Debug("Pod no longer exists, skipping preventive remediation")
+			return nil // Don't treat as error
+		}
+		return fmt.Errorf("failed to get pod: %w", err)
+	}
+
+	// Build comprehensive context including early warning information
+	context := r.gatherPreventiveContext(ctx, warning, pod)
+
+	// Determine issue type from warning
+	issueType := warning.WarningType
+	if issueType == "" {
+		issueType = "preventive_action_needed"
+	}
+
+	// Build AI request for preventive remediation
+	request := map[string]interface{}{
+		"pod_name":    warning.PodName,
+		"namespace":   warning.Namespace,
+		"issue_type":  issueType,
+		"severity":    warning.Severity,
+		"description": fmt.Sprintf("PREVENTIVE ACTION: %s (Risk: %.1f, Time to Anomaly: %s) - Action must complete BEFORE anomaly occurs!", warning.WarningType, warning.RiskScore, warning.TimeToAnomaly),
+		"context":     context,
+	}
+
+	// Call MCP server for AI-powered preventive plan
+	requestBody, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", r.mcpURL+"/v1/analyze-with-plan", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call MCP server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("MCP server returned error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var plan RemediationPlan
+	if err := json.NewDecoder(resp.Body).Decode(&plan); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Execute the AI-generated preventive plan
+	utils.Log.WithFields(map[string]interface{}{
+		"pod":             warning.PodName,
+		"namespace":       warning.Namespace,
+		"actions":         len(plan.Actions),
+		"ai_source":       plan.AISource,
+		"time_to_anomaly": warning.TimeToAnomaly,
+	}).Info("🤖 Executing AI-generated preventive remediation plan")
+
+	// Create a temporary issue for tracking (preventive remediation)
+	preventiveIssue := &metrics.Issue{
+		ID:        uuid.New().String(),
+		PodName:   warning.PodName,
+		Namespace: warning.Namespace,
+		IssueType: issueType,
+		Severity:  warning.Severity,
+		Status:    "Open",
+		CreatedAt: time.Now(),
+	}
+
+	// Execute the plan
+	if err := r.executePlan(ctx, preventiveIssue, pod, &plan); err != nil {
+		return fmt.Errorf("failed to execute preventive plan: %w", err)
+	}
+
+	// Link early warning to the issue
+	if warning.ID != "" {
+		if err := r.db.LinkEarlyWarningToIssue(ctx, warning.ID, preventiveIssue.ID); err != nil {
+			utils.Log.WithError(err).Warn("Failed to link early warning to issue")
+		} else {
+			utils.Log.WithFields(map[string]interface{}{
+				"warning_id": warning.ID,
+				"issue_id":   preventiveIssue.ID,
+			}).Debug("Early warning linked to issue")
+		}
+	}
+
+	// Record successful preventive remediation
+	remediation := &metrics.Remediation{
+		ID:               uuid.New().String(),
+		IssueID:          preventiveIssue.ID,
+		PodName:          warning.PodName,
+		Namespace:        warning.Namespace,
+		Action:           "preventive_remediation",
+		ActionDetails:    fmt.Sprintf("AI-generated preventive plan (Source: %s): %s (Time to Anomaly: %s)", plan.AISource, plan.Reasoning, warning.TimeToAnomaly),
+		ExecutedAt:       time.Now(),
+		Success:          true,
+		AIRecommendation: plan.Reasoning,
+		Strategy:         "preventive",
+		Timestamp:        time.Now(),
+	}
+
+	if err := r.db.SaveRemediation(ctx, remediation); err != nil {
+		utils.Log.WithError(err).Warn("Failed to save preventive remediation record")
+	} else {
+		// Update remediation with ai_source (stored separately in database)
+		if err := r.db.UpdateRemediationAISource(ctx, remediation.ID, plan.AISource); err != nil {
+			utils.Log.WithError(err).Debug("Failed to update remediation ai_source")
+		}
+	}
+
+	return nil
+}
+
+// gatherPreventiveContext gathers comprehensive context for preventive remediation including early warning data
+func (r *Remediator) gatherPreventiveContext(ctx context.Context, warning *metrics.EarlyWarning, pod *corev1.Pod) map[string]interface{} {
+	context := make(map[string]interface{})
+
+	// Add early warning information - CRITICAL for preventive actions
+	context["early_warning"] = map[string]interface{}{
+		"warning_type":            warning.WarningType,
+		"severity":                warning.Severity,
+		"risk_score":              warning.RiskScore,
+		"time_to_anomaly":         warning.TimeToAnomaly.String(),
+		"time_to_anomaly_seconds": int(warning.TimeToAnomaly.Seconds()),
+		"confidence":              warning.Confidence,
+		"recommended_action":      warning.RecommendedAction,
+		"predicted_metrics":       warning.PredictedMetrics,
+		"description":             warning.Description,
+		"created_at":              warning.CreatedAt.Format(time.RFC3339),
+	}
+
+	// Add standard pod context (reuse existing gatherContext logic)
+	standardContext := r.gatherContext(ctx, &metrics.Issue{
+		PodName:   warning.PodName,
+		Namespace: warning.Namespace,
+		IssueType: warning.WarningType,
+		Severity:  warning.Severity,
+	}, pod)
+
+	// Merge contexts
+	for k, v := range standardContext {
+		context[k] = v
+	}
+
+	return context
+}
+
 func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) error {
 	utils.Log.WithField("issue_id", issue.ID).Infof("🔧 Processing issue: %s (%s)", issue.Description, issue.IssueType)
 
 	pod, err := r.k8sClient.GetPod(ctx, issue.Namespace, issue.PodName)
 	if err != nil {
-		// Check if it's a "not found" error vs other errors
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "NotFound") {
-			utils.Log.WithError(err).WithFields(map[string]interface{}{
-				"pod":       issue.PodName,
-				"namespace": issue.Namespace,
-			}).Warn("⚠️  Pod not found, marking issue as resolved")
-			return r.markIssueResolved(ctx, issue, "pod_not_found", fmt.Sprintf("Pod %s/%s no longer exists", issue.Namespace, issue.PodName), true, 0)
+		// Check if it's a proper Kubernetes "not found" error (404)
+		// Only mark as resolved if it's a genuine NotFound error, not other errors
+		if errors.IsNotFound(err) {
+			// Double-check: verify pod really doesn't exist by checking error details
+			errStr := err.Error()
+			if strings.Contains(errStr, "not found") || strings.Contains(errStr, "NotFound") {
+				// Additional verification: check if pod name matches exactly
+				// This prevents false positives from partial matches
+				if strings.Contains(errStr, issue.PodName) || strings.Contains(errStr, issue.Namespace) {
+					utils.Log.WithError(err).WithFields(map[string]interface{}{
+						"pod":       issue.PodName,
+						"namespace": issue.Namespace,
+					}).Info("✅ Pod no longer exists, marking issue as resolved")
+					// Use "resolved" action instead of "pod_not_found" and clean message
+					return r.markIssueResolved(ctx, issue, "resolved", fmt.Sprintf("Issue resolved - pod %s/%s no longer exists", issue.Namespace, issue.PodName), true, 0, "System")
+				}
+			}
 		}
-		// For other errors (network, timeout, etc.), log and retry later
+		// For other errors (network, timeout, permission denied, etc.), log and retry later
 		utils.Log.WithError(err).WithFields(map[string]interface{}{
 			"pod":       issue.PodName,
 			"namespace": issue.Namespace,
-		}).Error("❌ Failed to get pod (will retry later)")
+			"error":     err.Error(),
+		}).Error("❌ Failed to get pod (will retry later - not a NotFound error)")
 		return fmt.Errorf("failed to get pod: %w", err)
 	}
 
 	issueContext := r.gatherContext(ctx, issue, pod)
 
-	plan, err := r.getAIRemediationPlan(ctx, issue, issueContext)
+	plan, aiSource, err := r.getAIRemediationPlan(ctx, issue, issueContext)
 	if err != nil {
 		utils.Log.WithError(err).Error("❌ Failed to get AI remediation plan")
 		fallbackPlan := r.getFallbackPlan(issue, pod)
+		fallbackPlan.AISource = "Fallback"
 		plan = &fallbackPlan
+		aiSource = "Fallback"
+	} else if plan != nil {
+		plan.AISource = aiSource
 	}
 
 	utils.Log.Infof("🤖 AI Plan: %s (confidence: %.2f, risk: %s)", plan.Reasoning, plan.Confidence, plan.RiskLevel)
@@ -348,21 +571,21 @@ func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) err
 		metrics.RemediationPlanValidationErrors.Inc()
 		return r.recordFailedRemediation(ctx, issue, "invalid_plan",
 			fmt.Sprintf("Plan validation failed for issue %s (pod: %s/%s, type: %s): %v. Plan had %d actions, confidence: %.2f, risk: %s",
-				issue.ID, issue.Namespace, issue.PodName, issue.IssueType, err, len(plan.Actions), plan.Confidence, plan.RiskLevel), 0)
+				issue.ID, issue.Namespace, issue.PodName, issue.IssueType, err, len(plan.Actions), plan.Confidence, plan.RiskLevel), 0, aiSource)
 	}
 
 	minConfidence := config.GetMinConfidenceForRemediation()
 	if plan.Confidence < minConfidence {
 		utils.Log.Warnf("⚠️  Low confidence (%.2f < %.2f), skipping remediation", plan.Confidence, minConfidence)
 		return r.recordFailedRemediation(ctx, issue, "low_confidence",
-			fmt.Sprintf("AI confidence too low: %.2f < %.2f", plan.Confidence, minConfidence), 0)
+			fmt.Sprintf("AI confidence too low: %.2f < %.2f", plan.Confidence, minConfidence), 0, aiSource)
 	}
 
 	highConfidenceThreshold := config.GetHighConfidenceThreshold()
 	if plan.RiskLevel == "high" && plan.Confidence < highConfidenceThreshold {
 		utils.Log.Warn("⚠️  High risk with insufficient confidence, requires manual approval")
 		return r.recordFailedRemediation(ctx, issue, "high_risk",
-			"High-risk remediation requires manual approval or higher confidence", 0)
+			"High-risk remediation requires manual approval or higher confidence", 0, aiSource)
 	}
 
 	// Run safety checks before execution
@@ -372,7 +595,7 @@ func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) err
 			if !passed {
 				utils.Log.WithField("action", action.Operation).Error("Safety check failed, aborting remediation")
 				return r.recordFailedRemediation(ctx, issue, "safety_check_failed",
-					fmt.Sprintf("Safety check failed for action %s", action.Operation), 0)
+					fmt.Sprintf("Safety check failed for action %s", action.Operation), 0, aiSource)
 			}
 			if len(warnings) > 0 {
 				utils.Log.WithField("action", action.Operation).Warnf("Safety warnings: %v", warnings)
@@ -412,7 +635,7 @@ func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) err
 			}
 		}
 
-		return r.recordFailedRemediation(ctx, issue, "execution_failed", err.Error(), executionDuration)
+		return r.recordFailedRemediation(ctx, issue, "execution_failed", err.Error(), executionDuration, aiSource)
 	}
 
 	executionDuration := time.Since(executionStart)
@@ -424,7 +647,35 @@ func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) err
 		r.rollbackMgr.MarkCompleted()
 	}
 
-	return r.markIssueResolved(ctx, issue, "remediation_applied", plan.Reasoning, true, executionDuration)
+	// Build action summary from executed plan
+	actionSummary := "remediation_applied"
+	if len(plan.Actions) > 0 {
+		// Create a summary of actions: "restart pod, increase_memory deployment"
+		actionOps := make([]string, 0, len(plan.Actions))
+		for _, act := range plan.Actions {
+			actionOps = append(actionOps, fmt.Sprintf("%s %s", act.Operation, act.Type))
+		}
+		if len(actionOps) > 0 {
+			actionSummary = strings.Join(actionOps, ", ")
+		}
+	}
+
+	// Build comprehensive reasoning message that includes AI source and plan details
+	reasoningMessage := plan.Reasoning
+	if aiSource != "" && aiSource != "Fallback" && aiSource != "System" {
+		reasoningMessage = fmt.Sprintf("[%s AI] %s", aiSource, plan.Reasoning)
+	}
+	if len(plan.Actions) > 0 {
+		reasoningMessage += fmt.Sprintf(" | Actions: %s", actionSummary)
+	}
+	if plan.Confidence > 0 {
+		reasoningMessage += fmt.Sprintf(" | Confidence: %.0f%%", plan.Confidence*100)
+	}
+	if plan.RiskLevel != "" {
+		reasoningMessage += fmt.Sprintf(" | Risk: %s", plan.RiskLevel)
+	}
+
+	return r.markIssueResolved(ctx, issue, actionSummary, reasoningMessage, true, executionDuration, aiSource)
 }
 
 func (r *Remediator) gatherContext(ctx context.Context, issue *metrics.Issue, pod *corev1.Pod) map[string]interface{} {
@@ -521,12 +772,186 @@ func (r *Remediator) gatherContext(ctx context.Context, issue *metrics.Issue, po
 		context["recent_events"] = eventList
 	}
 
+	// Add comprehensive historical metrics from database for better AI decision-making
+	if r.db != nil {
+		metrics, err := r.db.GetRecentPodMetrics(ctx, issue.PodName, issue.Namespace, 20)
+		if err == nil && len(metrics) > 0 {
+			// Calculate trends and statistics from historical metrics
+			metricsContext := make(map[string]interface{})
+
+			// Current metrics (most recent)
+			if len(metrics) > 0 {
+				latest := metrics[0]
+				metricsContext["current"] = map[string]interface{}{
+					"cpu_usage_millicores": latest.CPUUsageMillicores,
+					"cpu_utilization":      latest.CPUUtilization,
+					"memory_usage_bytes":   latest.MemoryUsageBytes,
+					"memory_utilization":   latest.MemoryUtilization,
+					"memory_limit_bytes":   latest.MemoryLimitBytes,
+					"network_rx_bytes":     latest.NetworkRxBytes,
+					"network_tx_bytes":     latest.NetworkTxBytes,
+					"network_rx_errors":    latest.NetworkRxErrors,
+					"network_tx_errors":    latest.NetworkTxErrors,
+					"disk_usage_bytes":     latest.DiskUsageBytes,
+					"restarts":             latest.Restarts,
+					"cpu_trend":            latest.CPUTrend,
+					"memory_trend":         latest.MemoryTrend,
+					"restart_trend":        latest.RestartTrend,
+					"has_oom_kill":         latest.HasOOMKill,
+					"has_crash_loop":       latest.HasCrashLoop,
+					"has_high_cpu":         latest.HasHighCPU,
+					"has_network_issues":   latest.HasNetworkIssues,
+				}
+			}
+
+			// Calculate averages and trends over last 10 data points
+			if len(metrics) >= 10 {
+				var sumCPU, sumMemory, sumCPUUtil, sumMemoryUtil float64
+				var sumNetworkRx, sumNetworkTx, sumNetworkRxErr, sumNetworkTxErr int64
+				var maxCPU, maxCPUUtil, maxMemoryUtil float64
+				var maxMemory int64
+
+				for i := 0; i < 10 && i < len(metrics); i++ {
+					m := metrics[i]
+					sumCPU += m.CPUUsageMillicores
+					sumMemory += float64(m.MemoryUsageBytes)
+					sumCPUUtil += m.CPUUtilization
+					sumMemoryUtil += m.MemoryUtilization
+					sumNetworkRx += m.NetworkRxBytes
+					sumNetworkTx += m.NetworkTxBytes
+					sumNetworkRxErr += m.NetworkRxErrors
+					sumNetworkTxErr += m.NetworkTxErrors
+
+					if m.CPUUsageMillicores > maxCPU {
+						maxCPU = m.CPUUsageMillicores
+					}
+					if m.MemoryUsageBytes > maxMemory {
+						maxMemory = m.MemoryUsageBytes
+					}
+					if m.CPUUtilization > maxCPUUtil {
+						maxCPUUtil = m.CPUUtilization
+					}
+					if m.MemoryUtilization > maxMemoryUtil {
+						maxMemoryUtil = m.MemoryUtilization
+					}
+				}
+
+				count := float64(10)
+				metricsContext["averages_10min"] = map[string]interface{}{
+					"avg_cpu_millicores":     sumCPU / count,
+					"avg_memory_bytes":       sumMemory / count,
+					"avg_cpu_utilization":    sumCPUUtil / count,
+					"avg_memory_utilization": sumMemoryUtil / count,
+					"avg_network_rx_bytes":   sumNetworkRx / int64(count),
+					"avg_network_tx_bytes":   sumNetworkTx / int64(count),
+					"avg_network_rx_errors":  sumNetworkRxErr / int64(count),
+					"avg_network_tx_errors":  sumNetworkTxErr / int64(count),
+					"max_cpu_millicores":     maxCPU,
+					"max_memory_bytes":       float64(maxMemory),
+					"max_cpu_utilization":    maxCPUUtil,
+					"max_memory_utilization": maxMemoryUtil,
+				}
+			}
+
+			// Resource utilization analysis
+			if len(metrics) > 0 {
+				latest := metrics[0]
+				if latest.MemoryLimitBytes > 0 {
+					memoryUtilPercent := (float64(latest.MemoryUsageBytes) / float64(latest.MemoryLimitBytes)) * 100
+					metricsContext["resource_utilization"] = map[string]interface{}{
+						"memory_utilization_percent": memoryUtilPercent,
+						"memory_available_bytes":     latest.MemoryLimitBytes - latest.MemoryUsageBytes,
+						"memory_pressure":            memoryUtilPercent > 80,
+					}
+				}
+			}
+
+			context["historical_metrics"] = metricsContext
+		}
+
+		// Add ML predictions from database - CRITICAL for AI decision-making
+		predictions, err := r.db.GetRecentMLPredictions(ctx, issue.PodName, issue.Namespace, 10)
+		if err == nil && len(predictions) > 0 {
+			predictionsContext := make(map[string]interface{})
+
+			// Latest prediction (most recent)
+			if len(predictions) > 0 {
+				latest := predictions[0]
+				// Determine if anomaly based on predicted_issue
+				isAnomaly := latest.PredictedIssue != "" && latest.PredictedIssue != "healthy"
+
+				predictionsContext["latest"] = map[string]interface{}{
+					"predicted_issue":           latest.PredictedIssue,
+					"confidence":                latest.Confidence,
+					"time_horizon_seconds":      latest.TimeHorizonSeconds,
+					"is_anomaly":                isAnomaly,
+					"anomaly_type":              latest.PredictedIssue, // Use predicted_issue as anomaly_type
+					"model_version":             "ensemble",            // Default since not in struct
+					"oom_score":                 latest.OOMScore,
+					"crash_loop_score":          latest.CrashLoopScore,
+					"high_cpu_score":            latest.HighCPUScore,
+					"disk_pressure_score":       latest.DiskPressureScore,
+					"network_error_score":       latest.NetworkErrorScore,
+					"explanation":               latest.Explanation,
+					"xgboost_prediction":        latest.XGBoostPrediction,
+					"random_forest_prediction":  latest.RandomForestPred,
+					"gradient_boost_prediction": latest.GradientBoostPred,
+					"neural_net_prediction":     latest.NeuralNetPrediction,
+				}
+
+				// Top features that influenced the prediction
+				if len(latest.TopFeatures) > 0 {
+					predictionsContext["top_features"] = latest.TopFeatures
+				}
+			}
+
+			// Prediction history (last 5 predictions for trend analysis)
+			if len(predictions) > 1 {
+				predictionHistory := make([]map[string]interface{}, 0)
+				for i := 0; i < 5 && i < len(predictions); i++ {
+					p := predictions[i]
+					isAnomaly := p.PredictedIssue != "" && p.PredictedIssue != "healthy"
+					predictionHistory = append(predictionHistory, map[string]interface{}{
+						"timestamp":        p.Timestamp,
+						"predicted_issue":  p.PredictedIssue,
+						"confidence":       p.Confidence,
+						"is_anomaly":       isAnomaly,
+						"oom_score":        p.OOMScore,
+						"crash_loop_score": p.CrashLoopScore,
+						"high_cpu_score":   p.HighCPUScore,
+					})
+				}
+				predictionsContext["history"] = predictionHistory
+
+				// Calculate prediction trends
+				if len(predictions) >= 3 {
+					var avgConfidence, avgOOMScore, avgCrashLoopScore, avgHighCPUScore float64
+					for i := 0; i < 3 && i < len(predictions); i++ {
+						avgConfidence += predictions[i].Confidence
+						avgOOMScore += predictions[i].OOMScore
+						avgCrashLoopScore += predictions[i].CrashLoopScore
+						avgHighCPUScore += predictions[i].HighCPUScore
+					}
+					count := float64(3)
+					predictionsContext["trends"] = map[string]interface{}{
+						"avg_confidence":       avgConfidence / count,
+						"avg_oom_score":        avgOOMScore / count,
+						"avg_crash_loop_score": avgCrashLoopScore / count,
+						"avg_high_cpu_score":   avgHighCPUScore / count,
+					}
+				}
+			}
+
+			context["ml_predictions"] = predictionsContext
+		}
+	}
+
 	return context
 }
 
-func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Issue, context map[string]interface{}) (*RemediationPlan, error) {
+func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Issue, context map[string]interface{}) (*RemediationPlan, string, error) {
 	if issue == nil {
-		return nil, fmt.Errorf("issue parameter cannot be nil")
+		return nil, "", fmt.Errorf("issue parameter cannot be nil")
 	}
 
 	payload := map[string]interface{}{
@@ -541,7 +966,7 @@ func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Is
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Log request for debugging (redact sensitive data if any)
@@ -573,7 +998,7 @@ func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Is
 				continue
 			}
 			metrics.MCPRequestDuration.WithLabelValues("analyze-with-plan").Observe(time.Since(startTime).Seconds())
-			return nil, lastErr
+			return nil, "", lastErr
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := r.httpClient.Do(req)
@@ -588,7 +1013,7 @@ func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Is
 				continue
 			}
 			metrics.MCPRequestDuration.WithLabelValues("analyze-with-plan").Observe(time.Since(startTime).Seconds())
-			return nil, lastErr
+			return nil, "", lastErr
 		}
 
 		if resp.StatusCode != http.StatusOK {
@@ -613,7 +1038,7 @@ func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Is
 				continue
 			}
 			metrics.MCPRequestDuration.WithLabelValues("analyze-with-plan").Observe(time.Since(startTime).Seconds())
-			return nil, lastErr
+			return nil, "", lastErr
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&plan); err != nil {
@@ -628,21 +1053,28 @@ func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Is
 				continue
 			}
 			metrics.MCPRequestDuration.WithLabelValues("analyze-with-plan").Observe(time.Since(startTime).Seconds())
-			return nil, lastErr
+			return nil, "", lastErr
 		}
 		resp.Body.Close()
+
+		// Extract AI source from plan (default to "Unknown" if not set)
+		aiSource := plan.AISource
+		if aiSource == "" {
+			aiSource = "Unknown"
+		}
 
 		// Log successful response (summary only)
 		utils.Log.WithFields(map[string]interface{}{
 			"actions_count": len(plan.Actions),
 			"confidence":    plan.Confidence,
 			"risk_level":    plan.RiskLevel,
+			"ai_source":     aiSource,
 		}).Debug("MCP server returned remediation plan")
 		metrics.MCPRequestsTotal.WithLabelValues("analyze-with-plan", "success").Inc()
 		metrics.MCPRequestDuration.WithLabelValues("analyze-with-plan").Observe(time.Since(startTime).Seconds())
 
 		if len(plan.Actions) > 0 {
-			return &plan, nil
+			return &plan, aiSource, nil
 		}
 
 		lastErr = fmt.Errorf("AI returned empty action plan")
@@ -653,7 +1085,7 @@ func (r *Remediator) getAIRemediationPlan(ctx context.Context, issue *metrics.Is
 		}
 	}
 
-	return nil, fmt.Errorf("MCP server unavailable after %d attempts: %w", maxRetries, lastErr)
+	return nil, "", fmt.Errorf("MCP server unavailable after %d attempts: %w", maxRetries, lastErr)
 }
 
 func (r *Remediator) getFallbackPlan(issue *metrics.Issue, pod *corev1.Pod) RemediationPlan {
@@ -692,6 +1124,7 @@ func (r *Remediator) getFallbackPlan(issue *metrics.Issue, pod *corev1.Pod) Reme
 	switch issue.IssueType {
 	case "OOMKilled", "oom_killed", "high_memory":
 		if deploymentName != "" {
+			// Multi-step strategy: increase memory, then scale if needed
 			actions = []RemediationAction{
 				{
 					Type:       "deployment",
@@ -700,8 +1133,15 @@ func (r *Remediator) getFallbackPlan(issue *metrics.Issue, pod *corev1.Pod) Reme
 					Parameters: map[string]interface{}{"factor": 1.5},
 					Order:      0,
 				},
+				{
+					Type:       "deployment",
+					Target:     deploymentName,
+					Operation:  "scale",
+					Parameters: map[string]interface{}{"replicas": 1, "direction": "up"},
+					Order:      1,
+				},
 			}
-			reasoning = fmt.Sprintf("OOM detected - increasing memory by 50%% for deployment %s", deploymentName)
+			reasoning = fmt.Sprintf("OOM detected - increasing memory by 50%% and scaling up deployment %s to handle load", deploymentName)
 		} else if statefulSetName != "" {
 			actions = []RemediationAction{
 				{
@@ -714,32 +1154,62 @@ func (r *Remediator) getFallbackPlan(issue *metrics.Issue, pod *corev1.Pod) Reme
 			}
 			reasoning = fmt.Sprintf("OOM detected - increasing memory by 50%% for statefulset %s", statefulSetName)
 		} else {
+			// Standalone pod - try evict first (allows graceful shutdown)
 			actions = []RemediationAction{
 				{
 					Type:       "pod",
 					Target:     podName,
-					Operation:  "restart",
+					Operation:  "evict",
 					Parameters: map[string]interface{}{"grace_period_seconds": 30},
 					Order:      0,
 				},
 			}
-			reasoning = fmt.Sprintf("OOM detected - restarting pod %s (no deployment/statefulset found)", podName)
+			reasoning = fmt.Sprintf("OOM detected - evicting pod %s (allows graceful shutdown, no deployment/statefulset found)", podName)
 		}
 
 	case "CrashLoopBackOff", "crash_loop":
-		actions = []RemediationAction{
-			{
-				Type:       "pod",
-				Target:     podName,
-				Operation:  "restart",
-				Parameters: map[string]interface{}{"grace_period_seconds": 30},
-				Order:      0,
-			},
+		// For crash loops, try multiple strategies before giving up
+		if deploymentName != "" {
+			// Strategy 1: Restart rollout (more graceful than pod restart)
+			actions = []RemediationAction{
+				{
+					Type:       "deployment",
+					Target:     deploymentName,
+					Operation:  "restart_rollout",
+					Parameters: map[string]interface{}{},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Crash loop detected - restarting deployment rollout for %s (more graceful than pod restart)", deploymentName)
+		} else if statefulSetName != "" {
+			// For statefulsets, try evict first (allows graceful shutdown)
+			actions = []RemediationAction{
+				{
+					Type:       "pod",
+					Target:     podName,
+					Operation:  "evict",
+					Parameters: map[string]interface{}{"grace_period_seconds": 30},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Crash loop detected - evicting pod %s (allows graceful shutdown)", podName)
+		} else {
+			// Standalone pod - try evict first, then restart if needed
+			actions = []RemediationAction{
+				{
+					Type:       "pod",
+					Target:     podName,
+					Operation:  "evict",
+					Parameters: map[string]interface{}{"grace_period_seconds": 30},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Crash loop detected - evicting pod %s (allows graceful shutdown)", podName)
 		}
-		reasoning = fmt.Sprintf("Crash loop detected - restarting pod %s", podName)
 
 	case "high_cpu", "HighCPU", "cpu_spike":
 		if deploymentName != "" {
+			// Multi-step strategy: increase CPU, then scale if needed
 			actions = []RemediationAction{
 				{
 					Type:       "deployment",
@@ -748,8 +1218,15 @@ func (r *Remediator) getFallbackPlan(issue *metrics.Issue, pod *corev1.Pod) Reme
 					Parameters: map[string]interface{}{"factor": 1.5},
 					Order:      0,
 				},
+				{
+					Type:       "deployment",
+					Target:     deploymentName,
+					Operation:  "scale",
+					Parameters: map[string]interface{}{"replicas": 1, "direction": "up"},
+					Order:      1,
+				},
 			}
-			reasoning = fmt.Sprintf("High CPU usage - increasing CPU limits by 50%% for deployment %s", deploymentName)
+			reasoning = fmt.Sprintf("High CPU usage - increasing CPU limits by 50%% and scaling up deployment %s to distribute load", deploymentName)
 		} else if statefulSetName != "" {
 			actions = []RemediationAction{
 				{
@@ -762,41 +1239,98 @@ func (r *Remediator) getFallbackPlan(issue *metrics.Issue, pod *corev1.Pod) Reme
 			}
 			reasoning = fmt.Sprintf("High CPU usage - increasing CPU limits by 50%% for statefulset %s", statefulSetName)
 		} else {
+			// Standalone pod - try evict first (allows graceful shutdown)
 			actions = []RemediationAction{
 				{
 					Type:       "pod",
 					Target:     podName,
-					Operation:  "restart",
+					Operation:  "evict",
 					Parameters: map[string]interface{}{"grace_period_seconds": 30},
 					Order:      0,
 				},
 			}
-			reasoning = fmt.Sprintf("High CPU usage - restarting pod %s (no deployment/statefulset found)", podName)
+			reasoning = fmt.Sprintf("High CPU usage - evicting pod %s (allows graceful shutdown, no deployment/statefulset found)", podName)
 		}
 
 	case "ImagePullBackOff", "image_pull_backoff":
-		actions = []RemediationAction{
-			{
-				Type:       "pod",
-				Target:     podName,
-				Operation:  "restart",
-				Parameters: map[string]interface{}{"grace_period_seconds": 10},
-				Order:      0,
-			},
+		// For image pull failures, try delete (forces immediate recreation) instead of restart
+		if deploymentName != "" {
+			// For deployments, restart rollout is better (triggers new image pull)
+			actions = []RemediationAction{
+				{
+					Type:       "deployment",
+					Target:     deploymentName,
+					Operation:  "restart_rollout",
+					Parameters: map[string]interface{}{},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Image pull failure - restarting deployment rollout for %s to retry image pull", deploymentName)
+		} else {
+			// For standalone pods, delete forces immediate recreation with fresh image pull
+			actions = []RemediationAction{
+				{
+					Type:       "pod",
+					Target:     podName,
+					Operation:  "delete",
+					Parameters: map[string]interface{}{"grace_period_seconds": 0},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Image pull failure - deleting pod %s to force immediate recreation with fresh image pull", podName)
 		}
-		reasoning = fmt.Sprintf("Image pull failure - restarting pod %s to retry", podName)
+
+	case "NetworkErrors", "network_errors", "network_latency":
+		// For network issues, try evict (allows graceful shutdown and rescheduling)
+		if deploymentName != "" {
+			actions = []RemediationAction{
+				{
+					Type:       "deployment",
+					Target:     deploymentName,
+					Operation:  "restart_rollout",
+					Parameters: map[string]interface{}{},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Network errors detected - restarting deployment rollout for %s to reschedule pods", deploymentName)
+		} else {
+			actions = []RemediationAction{
+				{
+					Type:       "pod",
+					Target:     podName,
+					Operation:  "evict",
+					Parameters: map[string]interface{}{"grace_period_seconds": 30},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Network errors detected - evicting pod %s to reschedule on different node", podName)
+		}
 
 	default:
-		actions = []RemediationAction{
-			{
-				Type:       "pod",
-				Target:     podName,
-				Operation:  "restart",
-				Parameters: map[string]interface{}{"grace_period_seconds": 30},
-				Order:      0,
-			},
+		// For unknown issues, try evict first (more graceful), then fallback to restart
+		if deploymentName != "" {
+			actions = []RemediationAction{
+				{
+					Type:       "deployment",
+					Target:     deploymentName,
+					Operation:  "restart_rollout",
+					Parameters: map[string]interface{}{},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Unknown issue type %s - restarting deployment rollout for %s (more graceful than pod restart)", issue.IssueType, deploymentName)
+		} else {
+			actions = []RemediationAction{
+				{
+					Type:       "pod",
+					Target:     podName,
+					Operation:  "evict",
+					Parameters: map[string]interface{}{"grace_period_seconds": 30},
+					Order:      0,
+				},
+			}
+			reasoning = fmt.Sprintf("Unknown issue type %s - evicting pod %s (allows graceful shutdown)", issue.IssueType, podName)
 		}
-		reasoning = fmt.Sprintf("Unknown issue type %s - attempting pod restart for %s", issue.IssueType, podName)
 	}
 
 	return RemediationPlan{
@@ -1239,12 +1773,34 @@ func (r *Remediator) validatePlanWithPod(plan *RemediationPlan, pod *corev1.Pod)
 							action.Target = deployment.Name
 							utils.Log.Debugf("Action %d: resolved deployment placeholder via GetDeploymentForPod: %s", i, action.Target)
 						} else {
-							// Provide more detailed error message
-							if err != nil {
-								return fmt.Errorf("action %d: target '%s' is still a placeholder - could not resolve deployment from pod %s/%s: %w. Ensure pod has proper owner references or provide explicit deployment name", i, action.Target, pod.Namespace, pod.Name, err)
+							// For standalone pods without deployment, convert deployment action to pod action
+							// This handles cases where AI suggests deployment operations for standalone pods
+							utils.Log.Warnf("Action %d: deployment operation requested but pod %s/%s has no deployment. Converting to pod operation", i, pod.Namespace, pod.Name)
+							// Convert deployment operations to pod operations for standalone pods
+							if action.Operation == "restart_rollout" || action.Operation == "increase_memory" || action.Operation == "increase_cpu" {
+								action.Type = "pod"
+								action.Target = pod.Name
+								if action.Operation == "restart_rollout" {
+									action.Operation = "restart"
+								} else {
+									// For resource increases on standalone pods, use restart (will be rescheduled with new resources if needed)
+									action.Operation = "restart"
+								}
+								utils.Log.Debugf("Action %d: converted to pod operation: %s on %s", i, action.Operation, action.Target)
+							} else {
+								// For other operations, fail with helpful message
+								return fmt.Errorf("action %d: target '%s' is still a placeholder - pod %s/%s has no deployment. For standalone pods, use 'pod' type operations instead of 'deployment' operations", i, action.Target, pod.Namespace, pod.Name)
 							}
-							return fmt.Errorf("action %d: target '%s' is still a placeholder - deployment not found for pod %s/%s. Ensure pod has proper owner references or provide explicit deployment name", i, action.Target, pod.Namespace, pod.Name)
 						}
+					} else if pod != nil && action.Type == "statefulset" {
+						// Similar handling for statefulset
+						utils.Log.Warnf("Action %d: statefulset operation requested but pod %s/%s has no statefulset. Converting to pod operation", i, pod.Namespace, pod.Name)
+						action.Type = "pod"
+						action.Target = pod.Name
+						if action.Operation == "increase_memory" || action.Operation == "increase_cpu" {
+							action.Operation = "restart"
+						}
+						utils.Log.Debugf("Action %d: converted to pod operation: %s on %s", i, action.Operation, action.Target)
 					} else {
 						return fmt.Errorf("action %d: target '%s' is still a placeholder - actual resource name required for %s operations. Provide explicit resource name or ensure pod has proper owner references", i, action.Target, action.Type)
 					}
@@ -1472,7 +2028,7 @@ func (r *Remediator) getRestartCount(pod *corev1.Pod) int32 {
 	return total
 }
 
-func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue, action, message string, success bool, executionDuration time.Duration) error {
+func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue, action, message string, success bool, executionDuration time.Duration, aiSource string) error {
 	updateQuery := `UPDATE issues SET status = 'Resolved', resolved_at = NOW() WHERE id = $1`
 	if _, err := r.db.ExecRaw(ctx, updateQuery, issue.ID); err != nil {
 		utils.Log.WithError(err).Error("Failed to update issue status")
@@ -1488,16 +2044,45 @@ func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue
 	remediationID := uuid.New().String()
 
 	// Store comprehensive remediation history with action details
+	// For successful remediations, store actual actions taken in action_details
+	// For the action field, use a clean summary instead of technical details
+	actionSummary := action
+	if success {
+		// For successful remediations, use a clean action name
+		// Replace technical names with user-friendly ones
+		if action == "pod_not_found" {
+			actionSummary = "resolved"
+		} else if action == "remediation_applied" {
+			actionSummary = "remediation_applied"
+		} else {
+			actionSummary = action
+		}
+	}
+
+	// Store comprehensive action details including reasoning for Grafana display
 	actionDetailsJSON, _ := json.Marshal(map[string]interface{}{
-		"action":    action,
+		"action":    actionSummary,
 		"message":   message,
+		"reasoning": message, // Store reasoning for display (message contains the reasoning)
 		"success":   success,
 		"timestamp": executedAt,
+		"ai_source": aiSource,
 	})
 
-	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, action_details, executed_at, success, error_message, completed_at, timestamp)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
-	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, action, string(actionDetailsJSON), executedAt, success, message, completedAt, executedAt)
+	// For successful remediations, error_message should be NULL or empty, not the success message
+	// Only store error messages for failed remediations
+	var errorMessage interface{}
+	if success {
+		// Successful remediation - no error message
+		errorMessage = nil
+	} else {
+		// Failed remediation - store the error message
+		errorMessage = message
+	}
+
+	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, action_details, executed_at, success, error_message, completed_at, timestamp, ai_source)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, actionSummary, string(actionDetailsJSON), executedAt, success, errorMessage, completedAt, executedAt, aiSource)
 	if err != nil {
 		return fmt.Errorf("failed to record remediation: %w", err)
 	}
@@ -1510,7 +2095,7 @@ func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue
 	return nil
 }
 
-func (r *Remediator) recordFailedRemediation(ctx context.Context, issue *metrics.Issue, action, errorMsg string, executionDuration time.Duration) error {
+func (r *Remediator) recordFailedRemediation(ctx context.Context, issue *metrics.Issue, action, errorMsg string, executionDuration time.Duration, aiSource string) error {
 	executedAt := time.Now().Add(-executionDuration) // Start time
 	completedAt := time.Now()                        // End time (even for failures, track when it completed)
 	success := false
@@ -1518,9 +2103,9 @@ func (r *Remediator) recordFailedRemediation(ctx context.Context, issue *metrics
 	// Generate UUID using Go's uuid package instead of PostgreSQL gen_random_uuid()
 	// This avoids dependency on pgcrypto extension
 	remediationID := uuid.New().String()
-	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, executed_at, success, error_message, completed_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
-	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, action, executedAt, success, errorMsg, completedAt)
+	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, executed_at, success, error_message, completed_at, ai_source)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, action, executedAt, success, errorMsg, completedAt, aiSource)
 	if err != nil {
 		return fmt.Errorf("failed to record failed remediation: %w", err)
 	}

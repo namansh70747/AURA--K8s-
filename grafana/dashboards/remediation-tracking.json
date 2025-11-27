@@ -702,7 +702,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  executed_at as timestamp,\n  pod_name,\n  namespace,\n  COALESCE(strategy, action) as strategy,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - executed_at)) as duration,\n  error_message,\n  action as actions_taken\nFROM remediations\nWHERE $__timeFilter(executed_at) AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nORDER BY timestamp DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  executed_at as timestamp,\n  pod_name,\n  namespace,\n  COALESCE(strategy, action) as strategy,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - executed_at)) as duration,\n  COALESCE(error_message, '') as error_message,\n  action as actions_taken,\n  COALESCE(ai_source, 'Unknown') as ai_source,\n  COALESCE(\n    action_details::json->>'reasoning',\n    action_details::json->>'message',\n    CASE \n      WHEN action_details::json->>'reasoning' IS NULL AND action_details::json->>'message' IS NULL THEN 'Remediation executed successfully'\n      ELSE ''\n    END\n  ) as reasoning\nFROM remediations\nWHERE $__timeFilter(executed_at) AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nORDER BY timestamp DESC\nLIMIT 100",
           "refId": "A",
           "select": [
             [

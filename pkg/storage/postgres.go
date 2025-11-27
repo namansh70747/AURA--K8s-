@@ -243,12 +243,86 @@ func (p *PostgresDB) InitSchema(ctx context.Context) error {
 		utils.Log.Info("Database schema initialized successfully in compatibility mode")
 	}
 
+	// Run schema migrations for new columns
+	if err := p.migrateSchema(ctx); err != nil {
+		utils.Log.WithError(err).Error("Schema migration failed")
+		return fmt.Errorf("schema migration failed: %w", err)
+	}
+
 	// Validate schema completeness
 	if err := p.validateSchema(ctx); err != nil {
 		utils.Log.WithError(err).Error("Schema validation failed")
 		return fmt.Errorf("schema validation failed: %w", err)
 	}
 
+	return nil
+}
+
+// migrateSchema applies schema migrations for existing databases
+func (p *PostgresDB) migrateSchema(ctx context.Context) error {
+	utils.Log.Info("Running schema migrations...")
+
+	migrations := []struct {
+		name        string
+		query       string
+		description string
+	}{
+		{
+			name: "add_early_warnings_issue_id",
+			query: `
+				DO $$
+				BEGIN
+					IF NOT EXISTS (
+						SELECT 1 FROM information_schema.columns 
+						WHERE table_name = 'early_warnings' AND column_name = 'issue_id'
+					) THEN
+						ALTER TABLE early_warnings ADD COLUMN issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL;
+						CREATE INDEX IF NOT EXISTS idx_early_warnings_issue ON early_warnings(issue_id) WHERE issue_id IS NOT NULL;
+					END IF;
+				END $$;
+			`,
+			description: "Add issue_id column to early_warnings table",
+		},
+		{
+			name: "add_remediations_ai_source",
+			query: `
+				DO $$
+				BEGIN
+					IF NOT EXISTS (
+						SELECT 1 FROM information_schema.columns 
+						WHERE table_name = 'remediations' AND column_name = 'ai_source'
+					) THEN
+						ALTER TABLE remediations ADD COLUMN ai_source TEXT;
+					END IF;
+				END $$;
+			`,
+			description: "Add ai_source column to remediations table",
+		},
+	}
+
+	for _, migration := range migrations {
+		utils.Log.WithField("migration", migration.name).Debug("Applying migration")
+		if _, err := p.db.ExecContext(ctx, migration.query); err != nil {
+			// Check if it's a "column already exists" error (acceptable)
+			if pgErr, ok := err.(*pq.Error); ok {
+				if string(pgErr.Code) == "42701" { // duplicate_column
+					utils.Log.WithField("migration", migration.name).Debug("Migration already applied (column exists)")
+					continue
+				}
+			}
+			// Check for string patterns
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "already exists") || strings.Contains(errStr, "duplicate") {
+				utils.Log.WithField("migration", migration.name).Debug("Migration already applied")
+				continue
+			}
+			utils.Log.WithError(err).WithField("migration", migration.name).Error("Migration failed")
+			return fmt.Errorf("migration %s failed: %w", migration.name, err)
+		}
+		utils.Log.WithField("migration", migration.name).Info("Migration applied successfully")
+	}
+
+	utils.Log.Info("Schema migrations completed")
 	return nil
 }
 
@@ -471,13 +545,15 @@ CREATE TABLE IF NOT EXISTS early_warnings (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	expires_at TIMESTAMPTZ,
 	acknowledged BOOLEAN DEFAULT FALSE,
-	acknowledged_at TIMESTAMPTZ
+	acknowledged_at TIMESTAMPTZ,
+	issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_early_warnings_pod ON early_warnings(pod_name, namespace, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_early_warnings_severity ON early_warnings(severity, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_early_warnings_type ON early_warnings(warning_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_early_warnings_active ON early_warnings(created_at DESC) WHERE expires_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_early_warnings_issue ON early_warnings(issue_id) WHERE issue_id IS NOT NULL;
 
 -- Remediations table
 CREATE TABLE IF NOT EXISTS remediations (
@@ -491,6 +567,7 @@ CREATE TABLE IF NOT EXISTS remediations (
 	success BOOLEAN NOT NULL,
 	error_message TEXT,
 	ai_recommendation TEXT,
+	ai_source TEXT,
 	time_to_resolve INTEGER,
 	timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	completed_at TIMESTAMPTZ,
@@ -964,13 +1041,15 @@ CREATE TABLE IF NOT EXISTS early_warnings (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	expires_at TIMESTAMPTZ,
 	acknowledged BOOLEAN DEFAULT FALSE,
-	acknowledged_at TIMESTAMPTZ
+	acknowledged_at TIMESTAMPTZ,
+	issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_early_warnings_pod ON early_warnings(pod_name, namespace, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_early_warnings_severity ON early_warnings(severity, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_early_warnings_type ON early_warnings(warning_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_early_warnings_active ON early_warnings(created_at DESC) WHERE expires_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_early_warnings_issue ON early_warnings(issue_id) WHERE issue_id IS NOT NULL;
 
 -- Remediations table
 CREATE TABLE IF NOT EXISTS remediations (
@@ -984,6 +1063,7 @@ CREATE TABLE IF NOT EXISTS remediations (
 	success BOOLEAN NOT NULL,
 	error_message TEXT,
 	ai_recommendation TEXT,
+	ai_source TEXT,
 	time_to_resolve INTEGER,
 	timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	completed_at TIMESTAMPTZ,
@@ -1300,6 +1380,123 @@ func (p *PostgresDB) GetRecentPodMetrics(ctx context.Context, podName, namespace
 	return results, nil
 }
 
+// GetRecentMLPredictions returns recent ML predictions for a pod
+func (p *PostgresDB) GetRecentMLPredictions(ctx context.Context, podName, namespace string, limit int) ([]*metrics.MLPrediction, error) {
+	// Validate limit to prevent excessive memory usage
+	const maxLimit = 50
+	if limit <= 0 {
+		limit = 10 // Default limit
+	} else if limit > maxLimit {
+		limit = maxLimit // Cap at maximum
+	}
+
+	query := `
+	SELECT pod_name, namespace, timestamp, predicted_issue, confidence, time_horizon_seconds,
+		xgboost_prediction, random_forest_prediction, gradient_boost_prediction, neural_net_prediction,
+		oom_score, crash_loop_score, high_cpu_score, disk_pressure_score, network_error_score,
+		top_features, explanation, model_version, features, is_anomaly, anomaly_type
+	FROM ml_predictions
+	WHERE pod_name = $1 AND namespace = $2
+	ORDER BY timestamp DESC
+	LIMIT $3
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, podName, namespace, limit)
+	if err != nil {
+		return nil, errors.New(errors.ErrCodeDatabaseQuery, "failed to query recent ML predictions").
+			WithDetail("pod_name", podName).
+			WithDetail("namespace", namespace).
+			WithCause(err)
+	}
+	defer rows.Close()
+
+	var results []*metrics.MLPrediction
+	for rows.Next() {
+		pred := &metrics.MLPrediction{}
+		var topFeaturesJSON, featuresJSON []byte
+		var xgboostPred, rfPred, gbPred, nnPred sql.NullString
+		var explanation sql.NullString
+		var oomScore, crashLoopScore, highCPUScore, diskPressureScore, networkErrorScore sql.NullFloat64
+		var timeHorizon sql.NullInt64
+		var modelVersion, anomalyType sql.NullString
+		var isAnomaly sql.NullInt64
+
+		err := rows.Scan(
+			&pred.PodName, &pred.Namespace, &pred.Timestamp, &pred.PredictedIssue, &pred.Confidence, &timeHorizon,
+			&xgboostPred, &rfPred, &gbPred, &nnPred,
+			&oomScore, &crashLoopScore, &highCPUScore, &diskPressureScore, &networkErrorScore,
+			&topFeaturesJSON, &explanation, &modelVersion, &featuresJSON, &isAnomaly, &anomalyType,
+		)
+		if err != nil {
+			return nil, errors.New(errors.ErrCodeDatabaseQuery, "failed to scan ML prediction row").
+				WithCause(err)
+		}
+
+		// Parse JSON fields - TopFeatures is []string in struct, but JSONB in DB
+		if len(topFeaturesJSON) > 0 {
+			// Try to parse as array of strings first
+			var topFeaturesArray []string
+			if err := json.Unmarshal(topFeaturesJSON, &topFeaturesArray); err == nil {
+				pred.TopFeatures = topFeaturesArray
+			} else {
+				// If not array, try as map and extract keys
+				var topFeaturesMap map[string]interface{}
+				if err := json.Unmarshal(topFeaturesJSON, &topFeaturesMap); err == nil {
+					topFeaturesArray = make([]string, 0, len(topFeaturesMap))
+					for k := range topFeaturesMap {
+						topFeaturesArray = append(topFeaturesArray, k)
+					}
+					pred.TopFeatures = topFeaturesArray
+				}
+			}
+		}
+
+		// Handle nullable fields
+		if xgboostPred.Valid {
+			pred.XGBoostPrediction = xgboostPred.String
+		}
+		if rfPred.Valid {
+			pred.RandomForestPred = rfPred.String
+		}
+		if gbPred.Valid {
+			pred.GradientBoostPred = gbPred.String
+		}
+		if nnPred.Valid {
+			pred.NeuralNetPrediction = nnPred.String
+		}
+		if explanation.Valid {
+			pred.Explanation = explanation.String
+		}
+		if timeHorizon.Valid {
+			pred.TimeHorizonSeconds = int(timeHorizon.Int64)
+		}
+		if oomScore.Valid {
+			pred.OOMScore = oomScore.Float64
+		}
+		if crashLoopScore.Valid {
+			pred.CrashLoopScore = crashLoopScore.Float64
+		}
+		if highCPUScore.Valid {
+			pred.HighCPUScore = highCPUScore.Float64
+		}
+		if diskPressureScore.Valid {
+			pred.DiskPressureScore = diskPressureScore.Float64
+		}
+		if networkErrorScore.Valid {
+			pred.NetworkErrorScore = networkErrorScore.Float64
+		}
+
+		results = append(results, pred)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, errors.New(errors.ErrCodeDatabaseQuery, "error iterating ML prediction rows").
+			WithCause(err)
+	}
+
+	return results, nil
+}
+
 // SaveIssue saves an issue to the database
 func (p *PostgresDB) SaveIssue(ctx context.Context, issue *metrics.Issue) error {
 	if issue.ID == "" {
@@ -1574,7 +1771,7 @@ func (p *PostgresDB) GetRecentWarnings(ctx context.Context, limit int) ([]*metri
 	query := `
 	SELECT id, pod_name, namespace, warning_type, severity, risk_score,
 		time_to_anomaly_seconds, confidence, recommended_action,
-		predicted_metrics, created_at, expires_at, acknowledged
+		predicted_metrics, created_at, expires_at, acknowledged, issue_id
 	FROM early_warnings
 	WHERE (expires_at IS NULL OR expires_at > NOW())
 		AND (acknowledged IS NULL OR acknowledged = FALSE)
@@ -1598,15 +1795,18 @@ func (p *PostgresDB) GetRecentWarnings(ctx context.Context, limit int) ([]*metri
 		var predictedMetricsJSON []byte
 		var expiresAt sql.NullTime
 		var acknowledged sql.NullBool
+		var issueID sql.NullString
 
 		err := rows.Scan(
 			&warningID, &w.PodName, &w.Namespace, &w.WarningType, &w.Severity, &w.RiskScore,
 			&timeToAnomalySeconds, &confidence, &recommendedAction,
-			&predictedMetricsJSON, &w.CreatedAt, &expiresAt, &acknowledged,
+			&predictedMetricsJSON, &w.CreatedAt, &expiresAt, &acknowledged, &issueID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan warning: %w", err)
 		}
+
+		w.ID = warningID // Set the ID field
 
 		if timeToAnomalySeconds.Valid {
 			w.TimeToAnomaly = time.Duration(timeToAnomalySeconds.Int64) * time.Second
@@ -1634,6 +1834,26 @@ func (p *PostgresDB) GetRecentWarnings(ctx context.Context, limit int) ([]*metri
 	}
 
 	return warnings, rows.Err()
+}
+
+// LinkEarlyWarningToIssue links an early warning to an issue by updating the issue_id
+func (p *PostgresDB) LinkEarlyWarningToIssue(ctx context.Context, warningID, issueID string) error {
+	query := `UPDATE early_warnings SET issue_id = $1 WHERE id = $2`
+	_, err := p.db.ExecContext(ctx, query, issueID, warningID)
+	if err != nil {
+		return fmt.Errorf("failed to link early warning to issue: %w", err)
+	}
+	return nil
+}
+
+// UpdateRemediationAISource updates the ai_source field for a remediation
+func (p *PostgresDB) UpdateRemediationAISource(ctx context.Context, remediationID, aiSource string) error {
+	query := `UPDATE remediations SET ai_source = $1 WHERE id = $2`
+	_, err := p.db.ExecContext(ctx, query, aiSource, remediationID)
+	if err != nil {
+		return fmt.Errorf("failed to update remediation ai_source: %w", err)
+	}
+	return nil
 }
 
 // CleanupExpiredWarnings removes expired warnings from the database
@@ -1698,6 +1918,8 @@ func (p *PostgresDB) GetWarningsByPod(ctx context.Context, podName, namespace st
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan warning: %w", err)
 		}
+
+		w.ID = warningID // Set the ID field
 
 		if timeToAnomalySeconds.Valid {
 			w.TimeToAnomaly = time.Duration(timeToAnomalySeconds.Int64) * time.Second

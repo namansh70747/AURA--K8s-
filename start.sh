@@ -87,6 +87,38 @@ if ! kubectl cluster-info >/dev/null 2>&1; then
 fi
 kubectl config use-context kind-aura-k8s-local 2>/dev/null || true
 
+# Export KUBECONFIG for all services to use
+# Try to get kind kubeconfig first, then fall back to default
+if command -v kind >/dev/null 2>&1; then
+    KIND_KUBECONFIG=$(kind get kubeconfig-path --name=aura-k8s-local 2>/dev/null || kind get kubeconfig --name=aura-k8s-local 2>/dev/null | head -1)
+    if [ -n "$KIND_KUBECONFIG" ] && [ -f "$KIND_KUBECONFIG" ]; then
+        export KUBECONFIG="$KIND_KUBECONFIG"
+        echo -e "${GREEN}✓ KUBECONFIG exported: $KUBECONFIG${NC}"
+    elif kind get kubeconfig --name=aura-k8s-local >/dev/null 2>&1; then
+        # Create temp kubeconfig file from kind output
+        TEMP_KUBECONFIG=$(mktemp /tmp/aura-kubeconfig-XXXXXX.yaml)
+        kind get kubeconfig --name=aura-k8s-local > "$TEMP_KUBECONFIG" 2>/dev/null
+        if [ -f "$TEMP_KUBECONFIG" ] && grep -q "apiVersion" "$TEMP_KUBECONFIG" 2>/dev/null; then
+            export KUBECONFIG="$TEMP_KUBECONFIG"
+            echo -e "${GREEN}✓ KUBECONFIG exported from kind: $KUBECONFIG${NC}"
+        else
+            rm -f "$TEMP_KUBECONFIG" 2>/dev/null
+        fi
+    fi
+fi
+
+# If KUBECONFIG still not set, try default location
+if [ -z "$KUBECONFIG" ] || [ ! -f "$KUBECONFIG" ]; then
+    DEFAULT_KUBECONFIG="$HOME/.kube/config"
+    if [ -f "$DEFAULT_KUBECONFIG" ] && grep -q "apiVersion" "$DEFAULT_KUBECONFIG" 2>/dev/null; then
+        export KUBECONFIG="$DEFAULT_KUBECONFIG"
+        echo -e "${GREEN}✓ KUBECONFIG exported from default: $KUBECONFIG${NC}"
+    fi
+fi
+
+# Export KIND_CLUSTER_NAME for MCP server
+export KIND_CLUSTER_NAME="aura-k8s-local"
+
 # Install metrics-server with complete configuration (RBAC, APIService, Health Checks)
 # This ensures metrics-server is ALWAYS working every day and every time
 if ! kubectl get deployment metrics-server -n kube-system >/dev/null 2>&1; then
@@ -361,7 +393,15 @@ if ! start_service "ML Service" "cd $(pwd) && source venv/bin/activate && python
 fi
 
 echo -e "${BLUE}Starting MCP Server...${NC}"
-if ! start_service "MCP Server" "cd $(pwd) && source venv/bin/activate && python mcp/server_ollama.py" "mcp-server.pid" "8000"; then
+# Ensure MCP server gets KUBECONFIG and KIND_CLUSTER_NAME
+MCP_ENV="KUBECONFIG=$KUBECONFIG KIND_CLUSTER_NAME=aura-k8s-local"
+if [ -n "$GEMINI_API_KEY" ]; then
+    MCP_ENV="$MCP_ENV GEMINI_API_KEY=$GEMINI_API_KEY"
+fi
+if [ -n "$GROQ_API_KEY" ]; then
+    MCP_ENV="$MCP_ENV GROQ_API_KEY=$GROQ_API_KEY"
+fi
+if ! start_service "MCP Server" "cd $(pwd) && source venv/bin/activate && $MCP_ENV python mcp/server_ollama.py" "mcp-server.pid" "8000"; then
     echo -e "${YELLOW}⚠ MCP Server failed, will retry after other services${NC}"
 fi
 
@@ -398,7 +438,7 @@ fi
 
 if ! curl -sf http://localhost:8000/health >/dev/null 2>&1; then
     echo -e "${BLUE}Retrying MCP Server...${NC}"
-    start_service "MCP Server" "cd $(pwd) && source venv/bin/activate && python mcp/server_ollama.py" "mcp-server.pid" "8000" || true
+    start_service "MCP Server" "cd $(pwd) && source venv/bin/activate && $MCP_ENV python mcp/server_ollama.py" "mcp-server.pid" "8000" || true
 fi
 
 # Wait for services to initialize

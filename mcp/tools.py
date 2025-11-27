@@ -6,6 +6,7 @@ Provides helper functions to interact with Kubernetes API
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 import logging
+import os
 import threading
 from typing import Dict, List, Optional, Any
 
@@ -40,40 +41,176 @@ class KubernetesTools:
                 self.metrics_v1 = _k8s_client_cache.get('metrics_v1')
                 return
             
+            kubeconfig_loaded = False
             try:
-                # Try in-cluster config first
-                config.load_incluster_config()
-                logger.info("Loaded in-cluster Kubernetes configuration")
-            except:
-                # Fall back to kubeconfig
-                try:
-                    config.load_kube_config()
-                    logger.info("Loaded kubeconfig configuration")
-                except Exception as e:
-                    logger.error(f"Failed to load Kubernetes configuration: {e}")
+                # Priority 1: KUBECONFIG environment variable (explicit)
+                kubeconfig_path = os.getenv("KUBECONFIG")
+                if kubeconfig_path and os.path.exists(kubeconfig_path):
+                    try:
+                        config.load_kube_config(config_file=kubeconfig_path)
+                        logger.info(f"✅ Loaded Kubernetes configuration from KUBECONFIG: {kubeconfig_path}")
+                        kubeconfig_loaded = True
+                    except Exception as e:
+                        logger.warning(f"⚠️  Failed to load KUBECONFIG from {kubeconfig_path}: {e}")
+                
+                # Priority 1.5: Try to get kind cluster kubeconfig (if KUBECONFIG not loaded)
+                if not kubeconfig_loaded:
+                    try:
+                        import subprocess
+                        import shutil
+                        # Check if kind command exists
+                        if shutil.which("kind"):
+                            kind_cluster = os.getenv("KIND_CLUSTER_NAME", "aura-k8s-local")
+                            result = subprocess.run(
+                                ["kind", "get", "kubeconfig", "--name", kind_cluster],
+                                capture_output=True,
+                                text=True,
+                                timeout=10
+                            )
+                            if result.returncode == 0 and result.stdout and "apiVersion" in result.stdout:
+                                # Write to temp file and load
+                                import tempfile
+                                with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                                    f.write(result.stdout)
+                                    temp_kubeconfig = f.name
+                                try:
+                                    config.load_kube_config(config_file=temp_kubeconfig)
+                                    logger.info(f"✅ Loaded Kubernetes configuration from kind cluster: {kind_cluster}")
+                                    kubeconfig_loaded = True
+                                    # Store temp file path for cleanup later if needed
+                                    os.environ["KUBECONFIG"] = temp_kubeconfig
+                                except Exception as load_err:
+                                    logger.warning(f"⚠️  Failed to load kind kubeconfig: {load_err}")
+                                    try:
+                                        os.unlink(temp_kubeconfig)
+                                    except:
+                                        pass
+                    except Exception as kind_err:
+                        logger.debug(f"Kind cluster kubeconfig not available: {kind_err}")
+                
+                # Priority 2: In-cluster config (if running in pod and kubeconfig not loaded)
+                if not kubeconfig_loaded:
+                    try:
+                        config.load_incluster_config()
+                        logger.info("✅ Loaded in-cluster Kubernetes configuration")
+                        kubeconfig_loaded = True
+                    except config.ConfigException:
+                        pass  # Not running in cluster, continue to next option
+                
+                # Priority 3: Try kubectl context (if kubeconfig not loaded)
+                if not kubeconfig_loaded:
+                    try:
+                        # Try to use kubectl's current context
+                        import subprocess
+                        result = subprocess.run(
+                            ["kubectl", "config", "view", "--raw"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if result.returncode == 0 and result.stdout and "apiVersion" in result.stdout:
+                            import tempfile
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                                f.write(result.stdout)
+                                temp_kubeconfig = f.name
+                            try:
+                                config.load_kube_config(config_file=temp_kubeconfig)
+                                logger.info("✅ Loaded Kubernetes configuration from kubectl context")
+                                kubeconfig_loaded = True
+                                os.environ["KUBECONFIG"] = temp_kubeconfig
+                            except Exception as load_err:
+                                logger.warning(f"⚠️  Failed to load kubectl kubeconfig: {load_err}")
+                                try:
+                                    os.unlink(temp_kubeconfig)
+                                except:
+                                    pass
+                    except Exception:
+                        pass  # kubectl not available or failed
+                
+                # Priority 4: Default kubeconfig locations (if still not loaded)
+                if not kubeconfig_loaded:
+                    try:
+                        # Try default location first
+                        default_kubeconfig = os.path.expanduser("~/.kube/config")
+                        if os.path.exists(default_kubeconfig):
+                            # Validate the kubeconfig file before loading
+                            try:
+                                with open(default_kubeconfig, 'r') as f:
+                                    content = f.read()
+                                    if "apiVersion" in content and "clusters" in content:
+                                        config.load_kube_config(config_file=default_kubeconfig)
+                                        logger.info(f"✅ Loaded kubeconfig from default location: {default_kubeconfig}")
+                                        kubeconfig_loaded = True
+                                    else:
+                                        logger.warning(f"⚠️  Default kubeconfig file exists but appears invalid")
+                            except Exception as validate_err:
+                                logger.warning(f"⚠️  Failed to validate default kubeconfig: {validate_err}")
+                        else:
+                            # Try loading without explicit path (uses KUBECONFIG env or default)
+                            try:
+                                config.load_kube_config()
+                                logger.info("✅ Loaded kubeconfig configuration (auto-detected)")
+                                kubeconfig_loaded = True
+                            except Exception:
+                                pass  # Will raise error below
+                    except Exception as e:
+                        logger.warning(f"⚠️  Failed to load from default kubeconfig: {e}")
+                
+                # If still not loaded, raise error
+                if not kubeconfig_loaded:
+                    error_msg = "Failed to load Kubernetes configuration from any source"
+                    logger.error(f"❌ {error_msg}")
+                    logger.error("   Tried: KUBECONFIG env, kind cluster, in-cluster config, kubectl context, ~/.kube/config, auto-detect")
+                    raise RuntimeError(f"{error_msg} - MCP server will continue without Kubernetes client")
+                    
+            except config.ConfigException as e:
+                logger.error(f"❌ Kubernetes config exception: {e}")
+                # Don't raise - allow server to continue without K8s client
+                logger.warning("⚠️  MCP server will continue without Kubernetes client (using intelligent fallback)")
+                raise RuntimeError(f"Kubernetes configuration error: {e}") from e
+            except RuntimeError as re:
+                # Check if it's our custom error about kubeconfig loading
+                if "Failed to load Kubernetes configuration" in str(re) or "Kubernetes configuration error" in str(re):
+                    logger.warning("⚠️  Kubernetes client initialization failed, but server will continue")
+                    logger.warning("   MCP server will use intelligent fallback for remediation plans")
+                    # Re-raise to prevent client creation, but server can still start
                     raise
+                # Re-raise other RuntimeErrors
+                raise
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Kubernetes client: {type(e).__name__}: {e}")
+                logger.warning("⚠️  MCP server will continue without Kubernetes client (using intelligent fallback)")
+                raise RuntimeError(f"Kubernetes client initialization failed: {e}") from e
 
-            v1_client = client.CoreV1Api()
-            apps_v1_client = client.AppsV1Api()
-            metrics_v1_client = None
-
-            # Try to initialize metrics API
+            # Only create clients if kubeconfig was successfully loaded
             try:
-                from kubernetes.client import CustomObjectsApi
-                metrics_v1_client = CustomObjectsApi()
-            except:
-                logger.warning("Metrics API not available")
+                v1_client = client.CoreV1Api()
+                apps_v1_client = client.AppsV1Api()
+                metrics_v1_client = None
 
-            # Cache the clients
-            _k8s_client_cache = {
-                'v1': v1_client,
-                'apps_v1': apps_v1_client,
-                'metrics_v1': metrics_v1_client
-            }
-            
-            self.v1 = v1_client
-            self.apps_v1 = apps_v1_client
-            self.metrics_v1 = metrics_v1_client
+                # Try to initialize metrics API
+                try:
+                    from kubernetes.client import CustomObjectsApi
+                    metrics_v1_client = CustomObjectsApi()
+                except:
+                    logger.warning("Metrics API not available")
+
+                # Cache the clients
+                _k8s_client_cache = {
+                    'v1': v1_client,
+                    'apps_v1': apps_v1_client,
+                    'metrics_v1': metrics_v1_client
+                }
+                
+                self.v1 = v1_client
+                self.apps_v1 = apps_v1_client
+                self.metrics_v1 = metrics_v1_client
+                
+                logger.info("✅ Kubernetes client fully initialized and ready")
+            except Exception as client_err:
+                logger.error(f"❌ Failed to create Kubernetes API clients: {client_err}")
+                logger.warning("⚠️  MCP server will continue without Kubernetes client")
+                raise RuntimeError(f"Kubernetes API client creation failed: {client_err}") from client_err
 
     def get_pod(self, namespace: str, pod_name: str) -> Dict[str, Any]:
         """Get pod information"""
