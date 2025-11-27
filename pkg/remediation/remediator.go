@@ -449,28 +449,50 @@ func (r *Remediator) processPreventiveWithAI(ctx context.Context, warning *metri
 		}
 	}
 
-	// Record successful preventive remediation
-	remediation := &metrics.Remediation{
-		ID:               uuid.New().String(),
-		IssueID:          preventiveIssue.ID,
-		PodName:          warning.PodName,
-		Namespace:        warning.Namespace,
-		Action:           "preventive_remediation",
-		ActionDetails:    fmt.Sprintf("AI-generated preventive plan (Source: %s): %s (Time to Anomaly: %s)", plan.AISource, plan.Reasoning, warning.TimeToAnomaly),
-		ExecutedAt:       time.Now(),
-		Success:          true,
-		AIRecommendation: plan.Reasoning,
-		Strategy:         "preventive",
-		Timestamp:        time.Now(),
+	// Build action summary for preventive remediation
+	actionSummary := "preventive_remediation"
+	if len(plan.Actions) > 0 {
+		actionOps := make([]string, 0, len(plan.Actions))
+		for _, act := range plan.Actions {
+			actionDesc := fmt.Sprintf("%s %s %s", act.Operation, act.Type, act.Target)
+			if len(act.Parameters) > 0 {
+				params := make([]string, 0)
+				if factor, ok := act.Parameters["factor"].(float64); ok {
+					params = append(params, fmt.Sprintf("factor:%.1f", factor))
+				}
+				if replicas, ok := act.Parameters["replicas"].(float64); ok {
+					params = append(params, fmt.Sprintf("replicas:%.0f", replicas))
+				}
+				if len(params) > 0 {
+					actionDesc += fmt.Sprintf(" (%s)", strings.Join(params, ", "))
+				}
+			}
+			actionOps = append(actionOps, actionDesc)
+		}
+		if len(actionOps) > 0 {
+			actionSummary = strings.Join(actionOps, ", ")
+		}
 	}
 
-	if err := r.db.SaveRemediation(ctx, remediation); err != nil {
+	// Build reasoning message
+	reasoningMessage := plan.Reasoning
+	if plan.AISource != "" && plan.AISource != "Fallback" && plan.AISource != "System" {
+		reasoningMessage = fmt.Sprintf("[%s AI Generated] %s", plan.AISource, plan.Reasoning)
+	}
+	if len(plan.Actions) > 0 {
+		reasoningMessage += fmt.Sprintf(" | Actions: %s", actionSummary)
+	}
+
+	// Determine strategy
+	strategy := "Preventive"
+	if plan.AISource != "" && plan.AISource != "Fallback" && plan.AISource != "System" {
+		strategy = fmt.Sprintf("Preventive-AI-%s", plan.AISource)
+	}
+
+	// Record successful preventive remediation using markIssueResolved for consistency
+	executionDuration := 5 * time.Second // Estimate duration for preventive actions
+	if err := r.markIssueResolved(ctx, preventiveIssue, actionSummary, reasoningMessage, true, executionDuration, plan.AISource, strategy, &plan); err != nil {
 		utils.Log.WithError(err).Warn("Failed to save preventive remediation record")
-	} else {
-		// Update remediation with ai_source (stored separately in database)
-		if err := r.db.UpdateRemediationAISource(ctx, remediation.ID, plan.AISource); err != nil {
-			utils.Log.WithError(err).Debug("Failed to update remediation ai_source")
-		}
 	}
 
 	return nil
@@ -529,7 +551,7 @@ func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) err
 						"namespace": issue.Namespace,
 					}).Info("✅ Pod no longer exists, marking issue as resolved")
 					// Use "resolved" action instead of "pod_not_found" and clean message
-					return r.markIssueResolved(ctx, issue, "resolved", fmt.Sprintf("Issue resolved - pod %s/%s no longer exists", issue.Namespace, issue.PodName), true, 0, "System")
+					return r.markIssueResolved(ctx, issue, "resolved", fmt.Sprintf("Issue resolved - pod %s/%s no longer exists", issue.Namespace, issue.PodName), true, 0, "System", "System", nil)
 				}
 			}
 		}
@@ -647,13 +669,39 @@ func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) err
 		r.rollbackMgr.MarkCompleted()
 	}
 
-	// Build action summary from executed plan
+	// Build detailed action summary from executed plan - show exactly what was done
 	actionSummary := "remediation_applied"
 	if len(plan.Actions) > 0 {
-		// Create a summary of actions: "restart pod, increase_memory deployment"
+		// Create a detailed summary: "restart pod test-pod", "increase_memory deployment test-deployment (factor: 1.5)"
 		actionOps := make([]string, 0, len(plan.Actions))
 		for _, act := range plan.Actions {
-			actionOps = append(actionOps, fmt.Sprintf("%s %s", act.Operation, act.Type))
+			actionDesc := fmt.Sprintf("%s %s %s", act.Operation, act.Type, act.Target)
+			// Add parameters if present
+			if len(act.Parameters) > 0 {
+				params := make([]string, 0)
+				if factor, ok := act.Parameters["factor"].(float64); ok {
+					params = append(params, fmt.Sprintf("factor:%.1f", factor))
+				}
+				if replicas, ok := act.Parameters["replicas"].(float64); ok {
+					params = append(params, fmt.Sprintf("replicas:%.0f", replicas))
+				}
+				if gracePeriod, ok := act.Parameters["grace_period_seconds"].(float64); ok {
+					params = append(params, fmt.Sprintf("grace:%0.0fs", gracePeriod))
+				}
+				if image, ok := act.Parameters["image"].(string); ok {
+					params = append(params, fmt.Sprintf("image:%s", image))
+				}
+				if container, ok := act.Parameters["container"].(string); ok {
+					params = append(params, fmt.Sprintf("container:%s", container))
+				}
+				if direction, ok := act.Parameters["direction"].(string); ok {
+					params = append(params, fmt.Sprintf("direction:%s", direction))
+				}
+				if len(params) > 0 {
+					actionDesc += fmt.Sprintf(" (%s)", strings.Join(params, ", "))
+				}
+			}
+			actionOps = append(actionOps, actionDesc)
 		}
 		if len(actionOps) > 0 {
 			actionSummary = strings.Join(actionOps, ", ")
@@ -662,20 +710,41 @@ func (r *Remediator) processIssue(ctx context.Context, issue *metrics.Issue) err
 
 	// Build comprehensive reasoning message that includes AI source and plan details
 	reasoningMessage := plan.Reasoning
-	if aiSource != "" && aiSource != "Fallback" && aiSource != "System" {
-		reasoningMessage = fmt.Sprintf("[%s AI] %s", aiSource, plan.Reasoning)
+	// Add AI source prefix if it's from AI (not fallback/system)
+	if aiSource != "" && aiSource != "Fallback" && aiSource != "System" && aiSource != "MultiStrategy" && aiSource != "Intelligent-Fallback" {
+		reasoningMessage = fmt.Sprintf("[%s AI Generated] %s", aiSource, plan.Reasoning)
+	} else if aiSource == "MultiStrategy" {
+		reasoningMessage = fmt.Sprintf("[MultiStrategy Planner] %s", plan.Reasoning)
+	} else if aiSource == "Intelligent-Fallback" {
+		reasoningMessage = fmt.Sprintf("[Intelligent Fallback] %s", plan.Reasoning)
 	}
+
+	// Add action details to reasoning
 	if len(plan.Actions) > 0 {
-		reasoningMessage += fmt.Sprintf(" | Actions: %s", actionSummary)
+		reasoningMessage += fmt.Sprintf(" | Actions Taken: %s", actionSummary)
 	}
+
+	// Add confidence and risk if available
 	if plan.Confidence > 0 {
 		reasoningMessage += fmt.Sprintf(" | Confidence: %.0f%%", plan.Confidence*100)
 	}
 	if plan.RiskLevel != "" {
-		reasoningMessage += fmt.Sprintf(" | Risk: %s", plan.RiskLevel)
+		reasoningMessage += fmt.Sprintf(" | Risk Level: %s", plan.RiskLevel)
 	}
 
-	return r.markIssueResolved(ctx, issue, actionSummary, reasoningMessage, true, executionDuration, aiSource)
+	// Determine strategy based on AI source and plan type
+	strategy := "reactive"
+	if aiSource != "" && aiSource != "Fallback" && aiSource != "System" {
+		strategy = fmt.Sprintf("AI-%s", aiSource)
+	} else if aiSource == "MultiStrategy" {
+		strategy = "MultiStrategy"
+	} else if aiSource == "Intelligent-Fallback" {
+		strategy = "Intelligent-Fallback"
+	} else {
+		strategy = "Fallback"
+	}
+
+	return r.markIssueResolved(ctx, issue, actionSummary, reasoningMessage, true, executionDuration, aiSource, strategy, plan)
 }
 
 func (r *Remediator) gatherContext(ctx context.Context, issue *metrics.Issue, pod *corev1.Pod) map[string]interface{} {
@@ -2028,7 +2097,7 @@ func (r *Remediator) getRestartCount(pod *corev1.Pod) int32 {
 	return total
 }
 
-func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue, action, message string, success bool, executionDuration time.Duration, aiSource string) error {
+func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue, action, message string, success bool, executionDuration time.Duration, aiSource string, strategy string, plan *RemediationPlan) error {
 	updateQuery := `UPDATE issues SET status = 'Resolved', resolved_at = NOW() WHERE id = $1`
 	if _, err := r.db.ExecRaw(ctx, updateQuery, issue.ID); err != nil {
 		utils.Log.WithError(err).Error("Failed to update issue status")
@@ -2059,15 +2128,42 @@ func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue
 		}
 	}
 
-	// Store comprehensive action details including reasoning for Grafana display
-	actionDetailsJSON, _ := json.Marshal(map[string]interface{}{
+	// Build comprehensive action details including full plan information for Grafana display
+	actionDetails := map[string]interface{}{
 		"action":    actionSummary,
 		"message":   message,
-		"reasoning": message, // Store reasoning for display (message contains the reasoning)
+		"reasoning": message, // Default to message (which contains reasoning)
 		"success":   success,
 		"timestamp": executedAt,
 		"ai_source": aiSource,
-	})
+	}
+
+	// Include full plan details if available
+	if plan != nil {
+		// Store the AI's reasoning from the plan
+		actionDetails["reasoning"] = plan.Reasoning
+		actionDetails["plan_reasoning"] = plan.Reasoning
+
+		// Store all actions with their details
+		actionsDetails := make([]map[string]interface{}, 0, len(plan.Actions))
+		for _, act := range plan.Actions {
+			actionDetail := map[string]interface{}{
+				"operation": act.Operation,
+				"type":      act.Type,
+				"target":    act.Target,
+				"order":     act.Order,
+			}
+			if len(act.Parameters) > 0 {
+				actionDetail["parameters"] = act.Parameters
+			}
+			actionsDetails = append(actionsDetails, actionDetail)
+		}
+		actionDetails["actions"] = actionsDetails
+		actionDetails["confidence"] = plan.Confidence
+		actionDetails["risk_level"] = plan.RiskLevel
+	}
+
+	actionDetailsJSON, _ := json.Marshal(actionDetails)
 
 	// For successful remediations, error_message should be NULL or empty, not the success message
 	// Only store error messages for failed remediations
@@ -2080,9 +2176,18 @@ func (r *Remediator) markIssueResolved(ctx context.Context, issue *metrics.Issue
 		errorMessage = message
 	}
 
-	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, action_details, executed_at, success, error_message, completed_at, timestamp, ai_source)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
-	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, actionSummary, string(actionDetailsJSON), executedAt, success, errorMessage, completedAt, executedAt, aiSource)
+	// Ensure strategy is set (default to "reactive" if not provided)
+	if strategy == "" {
+		if aiSource != "" && aiSource != "Fallback" && aiSource != "System" {
+			strategy = fmt.Sprintf("AI-%s", aiSource)
+		} else {
+			strategy = "Fallback"
+		}
+	}
+
+	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, action_details, executed_at, success, error_message, completed_at, timestamp, ai_source, strategy)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
+	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, actionSummary, string(actionDetailsJSON), executedAt, success, errorMessage, completedAt, executedAt, aiSource, strategy)
 	if err != nil {
 		return fmt.Errorf("failed to record remediation: %w", err)
 	}
@@ -2103,9 +2208,25 @@ func (r *Remediator) recordFailedRemediation(ctx context.Context, issue *metrics
 	// Generate UUID using Go's uuid package instead of PostgreSQL gen_random_uuid()
 	// This avoids dependency on pgcrypto extension
 	remediationID := uuid.New().String()
-	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, executed_at, success, error_message, completed_at, ai_source)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
-	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, action, executedAt, success, errorMsg, completedAt, aiSource)
+
+	// Determine strategy for failed remediations
+	strategy := "Fallback"
+	if aiSource != "" && aiSource != "Fallback" && aiSource != "System" {
+		strategy = fmt.Sprintf("AI-%s", aiSource)
+	}
+
+	// Store action details even for failures
+	actionDetailsJSON, _ := json.Marshal(map[string]interface{}{
+		"action":    action,
+		"error":     errorMsg,
+		"success":   success,
+		"timestamp": executedAt,
+		"ai_source": aiSource,
+	})
+
+	query := `INSERT INTO remediations (id, issue_id, pod_name, namespace, action, action_details, executed_at, success, error_message, completed_at, ai_source, strategy)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+	_, err := r.db.ExecRaw(ctx, query, remediationID, issue.ID, issue.PodName, issue.Namespace, action, string(actionDetailsJSON), executedAt, success, errorMsg, completedAt, aiSource, strategy)
 	if err != nil {
 		return fmt.Errorf("failed to record failed remediation: %w", err)
 	}

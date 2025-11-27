@@ -78,7 +78,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(AVG(confidence), 0.0) as model_confidence\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND confidence IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(AVG(confidence), 0.0) as model_confidence\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND confidence IS NOT NULL\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -156,7 +156,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  CASE\n    WHEN COUNT(*) > 0 AND COUNT(*) FILTER (WHERE is_anomaly = 1) > 0 THEN\n      ROUND(\n        CAST(\n          COUNT(*) FILTER (WHERE is_anomaly = 1 AND confidence > 0.5) * 100.0 \n          / NULLIF(COUNT(*) FILTER (WHERE is_anomaly = 1), 0)\n        AS NUMERIC), 3\n      ) / 100.0\n    ELSE 0.0\n  END as accuracy\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND confidence IS NOT NULL\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  CASE\n    WHEN COUNT(*) > 0 AND COUNT(*) FILTER (WHERE is_anomaly = 1) > 0 THEN\n      ROUND(\n        CAST(\n          COUNT(*) FILTER (WHERE is_anomaly = 1 AND confidence > 0.5) * 100.0 \n          / NULLIF(COUNT(*) FILTER (WHERE is_anomaly = 1), 0)\n        AS NUMERIC), 3\n      ) / 100.0\n    ELSE 0.0\n  END as accuracy\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND confidence IS NOT NULL\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -232,7 +232,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as ml_predictionscount\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  \nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as ml_predictionscount\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  \nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -416,7 +416,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(AVG(confidence), 0.0) as \"Average Confidence\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  AND confidence IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(AVG(confidence), 0.0) as \"Average Confidence\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  AND confidence IS NOT NULL\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -516,7 +516,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  anomaly_type,\n  COALESCE(COUNT(*), 0) as count\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  \nGROUP BY time, anomaly_type\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  anomaly_type,\n  COALESCE(COUNT(*), 0) as count\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND is_anomaly = 1\n  \nGROUP BY time, anomaly_type\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -763,7 +763,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(AVG(CASE WHEN is_anomaly = 1 THEN 1.0 ELSE 0.0 END), 0.0) as \"Anomaly Rate\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  \nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(AVG(CASE WHEN is_anomaly = 1 THEN 1.0 ELSE 0.0 END), 0.0) as \"Anomaly Rate\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  \nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [

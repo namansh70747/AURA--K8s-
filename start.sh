@@ -181,8 +181,20 @@ for i in {1..30}; do
 done
 
 echo -e "${BLUE}Starting Grafana...${NC}"
-# Check if Grafana container exists and is running
-if docker ps | grep -q aura-grafana; then
+# Check if port 3000 is already in use
+if lsof -ti:3000 >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠ Port 3000 already in use - checking if Grafana is running...${NC}"
+    if docker ps | grep -q aura-grafana; then
+        echo -e "${GREEN}✓ Grafana container already running${NC}"
+    elif curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Grafana already running on port 3000 (external instance)${NC}"
+    else
+        echo -e "${YELLOW}⚠ Port 3000 in use but Grafana not detected - stopping conflicting process...${NC}"
+        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+        sleep 2
+        docker-compose up -d grafana
+    fi
+elif docker ps | grep -q aura-grafana; then
     echo -e "${GREEN}✓ Grafana container running${NC}"
 elif docker ps -a | grep -q aura-grafana; then
     echo -e "${BLUE}Starting existing Grafana container...${NC}"
@@ -257,20 +269,40 @@ start_service() {
     # Convert name to lowercase for log file
     local log_name=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
     
-    # Special handling for collector with auto-restart
+    # Special handling for collector with auto-restart and KUBECONFIG refresh
     if [ "$name" = "Collector" ]; then
-        # Create wrapper script with auto-restart
-        cat > /tmp/collector-wrapper.sh << 'WRAPPER_EOF'
+        # Create wrapper script with auto-restart and KUBECONFIG refresh
+        cat > /tmp/collector-wrapper.sh << WRAPPER_EOF
 #!/bin/bash
-export KUBECONFIG="$1"
+KUBECONFIG_PATH="$1"
+BINARY_PATH="$2"
+LOG_FILE="$3"
+
+# Function to refresh KUBECONFIG from kind
+refresh_kubeconfig() {
+    if kind get clusters | grep -q aura-k8s-local 2>/dev/null; then
+        kind get kubeconfig --name aura-k8s-local > "$KUBECONFIG_PATH" 2>/dev/null
+        export KUBECONFIG="$KUBECONFIG_PATH"
+        return 0
+    fi
+    return 1
+}
+
+# Initial KUBECONFIG refresh
+refresh_kubeconfig
+
 while true; do
-    "$2" 2>&1
+    # Refresh KUBECONFIG every 30 seconds to handle kind cluster port changes
+    refresh_kubeconfig
+    
+    export KUBECONFIG="$KUBECONFIG_PATH"
+    "$BINARY_PATH" 2>&1
     EXIT_CODE=$?
     if [ $EXIT_CODE -ne 0 ]; then
-        echo "$(date): Collector exited with code $EXIT_CODE, restarting in 5 seconds..." >> "$3"
+        echo "$(date): Collector exited with code $EXIT_CODE, restarting in 5 seconds..." >> "$LOG_FILE"
         sleep 5
     else
-        echo "$(date): Collector exited normally, restarting in 5 seconds..." >> "$3"
+        echo "$(date): Collector exited normally, restarting in 5 seconds..." >> "$LOG_FILE"
         sleep 5
     fi
 done
@@ -395,11 +427,25 @@ fi
 echo -e "${BLUE}Starting MCP Server...${NC}"
 # Ensure MCP server gets KUBECONFIG and KIND_CLUSTER_NAME
 MCP_ENV="KUBECONFIG=$KUBECONFIG KIND_CLUSTER_NAME=aura-k8s-local"
+# Export AI API keys from .env.local
 if [ -n "$GEMINI_API_KEY" ]; then
     MCP_ENV="$MCP_ENV GEMINI_API_KEY=$GEMINI_API_KEY"
 fi
 if [ -n "$GROQ_API_KEY" ]; then
     MCP_ENV="$MCP_ENV GROQ_API_KEY=$GROQ_API_KEY"
+fi
+if [ -n "$GROQ_MODEL" ]; then
+    MCP_ENV="$MCP_ENV GROQ_MODEL=$GROQ_MODEL"
+fi
+# Also export Ollama settings
+if [ -n "$OLLAMA_URL" ]; then
+    MCP_ENV="$MCP_ENV OLLAMA_URL=$OLLAMA_URL"
+fi
+if [ -n "$OLLAMA_MODEL" ]; then
+    MCP_ENV="$MCP_ENV OLLAMA_MODEL=$OLLAMA_MODEL"
+fi
+if [ -n "$OLLAMA_REQUEST_TIMEOUT" ]; then
+    MCP_ENV="$MCP_ENV OLLAMA_REQUEST_TIMEOUT=$OLLAMA_REQUEST_TIMEOUT"
 fi
 if ! start_service "MCP Server" "cd $(pwd) && source venv/bin/activate && $MCP_ENV python mcp/server_ollama.py" "mcp-server.pid" "8000"; then
     echo -e "${YELLOW}⚠ MCP Server failed, will retry after other services${NC}"

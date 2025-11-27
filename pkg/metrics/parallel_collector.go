@@ -274,7 +274,6 @@ func (pc *ParallelCollector) GetBufferMetrics(limit int) []*PodMetrics {
 func (pc *ParallelCollector) GetBufferStats() map[string]interface{} {
 	return pc.Collector.GetBufferStats()
 }
-
 func getRestartCount(pod *corev1.Pod) int32 {
 	var restarts int32
 	for _, status := range pod.Status.ContainerStatuses {

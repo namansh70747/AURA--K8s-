@@ -78,7 +78,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN 100.0\n    ELSE GREATEST(0.0, 100.0 - (COUNT(*) FILTER (WHERE is_anomaly = 1) * 100.0 / NULLIF(COUNT(*), 0)))\n  END as health_score\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nGROUP BY time\nORDER BY time\nUNION ALL\nSELECT\n  time_bucket('1 minute', timestamp) as time,\n  100.0 as health_score\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND NOT EXISTS (SELECT 1 FROM ml_predictions mp WHERE $__timeFilter(mp.timestamp) AND mp.namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage'))\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN 100.0\n    ELSE GREATEST(0.0, 100.0 - (COUNT(*) FILTER (WHERE is_anomaly = 1) * 100.0 / NULLIF(COUNT(*), 0)))\n  END as health_score\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\nGROUP BY time\nORDER BY time\nUNION ALL\nSELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  100.0 as health_score\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND NOT EXISTS (SELECT 1 FROM ml_predictions mp WHERE $__timeFilter(mp.timestamp) AND mp.namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage'))\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -260,7 +260,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(AVG(COALESCE(cpu_utilization, 0)), 0.0) as \"CPU Usage\",\n  COALESCE(AVG(COALESCE(memory_utilization, 0)), 0.0) as \"Memory Usage\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_usage_millicores >= 0 OR memory_usage_bytes >= 0 OR cpu_limit_millicores >= 0 OR memory_limit_bytes >= 0)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(AVG(COALESCE(cpu_utilization, 0)), 0.0) as \"CPU Usage\",\n  COALESCE(AVG(COALESCE(memory_utilization, 0)), 0.0) as \"Memory Usage\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_usage_millicores >= 0 OR memory_usage_bytes >= 0 OR cpu_limit_millicores >= 0 OR memory_limit_bytes >= 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -457,7 +457,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN 0.0\n    ELSE COALESCE((COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)), 0.0)\n  END as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  CASE\n    WHEN COUNT(*) = 0 THEN 0.0\n    ELSE COALESCE((COUNT(*) FILTER (WHERE success = true) * 100.0 / NULLIF(COUNT(*), 0)), 0.0)\n  END as success_rate\nFROM remediations\nWHERE $__timeFilter(executed_at)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -557,7 +557,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COUNT(*) FILTER (WHERE is_anomaly = 1) as \"Anomalies Detected\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COUNT(*) FILTER (WHERE is_anomaly = 1) as \"Anomalies Detected\"\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -908,7 +908,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -952,7 +952,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -996,7 +996,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1040,7 +1040,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1084,7 +1084,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1128,7 +1128,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1172,7 +1172,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1216,7 +1216,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1260,7 +1260,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1304,7 +1304,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1348,7 +1348,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1392,7 +1392,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1436,7 +1436,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1480,7 +1480,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1524,7 +1524,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1568,7 +1568,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1612,7 +1612,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1656,7 +1656,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1700,7 +1700,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1744,7 +1744,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1788,7 +1788,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1832,7 +1832,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1876,7 +1876,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1920,7 +1920,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1964,7 +1964,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2008,7 +2008,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2052,7 +2052,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2096,7 +2096,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2140,7 +2140,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2184,7 +2184,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2228,7 +2228,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2272,7 +2272,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2316,7 +2316,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2360,7 +2360,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2404,7 +2404,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2448,7 +2448,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2492,7 +2492,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2536,7 +2536,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM pod_metrics WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2632,7 +2632,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', created_at) as time, severity, COALESCE(COUNT(*), 0) as value FROM early_warnings WHERE (expires_at IS NULL OR expires_at > NOW()) AND (acknowledged IS NULL OR acknowledged = FALSE) AND $__timeFilter(created_at) GROUP BY time, severity ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', created_at)\n        ELSE date_trunc('1 minute', created_at)\n    END as time, severity, COALESCE(COUNT(*), 0) as value FROM early_warnings WHERE (expires_at IS NULL OR expires_at > NOW()) AND (acknowledged IS NULL OR acknowledged = FALSE) AND $__timeFilter(created_at) GROUP BY time, severity ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {

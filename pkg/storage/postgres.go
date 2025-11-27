@@ -1219,14 +1219,32 @@ CREATE TRIGGER set_ml_prediction_fields
 CREATE OR REPLACE FUNCTION update_remediation_strategy()
 RETURNS TRIGGER AS $$
 BEGIN
-	NEW.strategy := CASE
-		WHEN NEW.action LIKE '%scale_down%' OR NEW.action LIKE '%scale%' THEN 'scale_down'
-		WHEN NEW.action LIKE '%replica%' OR NEW.action LIKE '%reduce%' THEN 'reduce_replicas'
-		WHEN NEW.action LIKE '%optimize%' OR NEW.action LIKE '%rightsize%' THEN 'optimize_resources'
-		WHEN NEW.action LIKE '%restart%' THEN 'restart_pod'
-		WHEN NEW.action LIKE '%evict%' THEN 'evict_pod'
-		ELSE 'other'
-	END;
+	-- Only set strategy if it's NULL or empty, and use ai_source to determine strategy
+	-- This allows the Go code to set strategy explicitly, and only falls back to action-based strategy if needed
+	IF NEW.strategy IS NULL OR NEW.strategy = '' THEN
+		-- Use ai_source to determine strategy (preferred method)
+		IF NEW.ai_source IS NOT NULL AND NEW.ai_source != '' THEN
+			IF NEW.ai_source != 'Fallback' AND NEW.ai_source != 'System' AND NEW.ai_source != 'MultiStrategy' AND NEW.ai_source != 'Intelligent-Fallback' THEN
+				NEW.strategy := 'AI-' || NEW.ai_source;
+			ELSIF NEW.ai_source = 'MultiStrategy' THEN
+				NEW.strategy := 'MultiStrategy';
+			ELSIF NEW.ai_source = 'Intelligent-Fallback' THEN
+				NEW.strategy := 'Intelligent-Fallback';
+			ELSE
+				NEW.strategy := NEW.ai_source;
+			END IF;
+		ELSE
+			-- Fallback to action-based strategy only if ai_source is not available
+			NEW.strategy := CASE
+				WHEN NEW.action LIKE '%scale_down%' OR NEW.action LIKE '%scale%' THEN 'scale_down'
+				WHEN NEW.action LIKE '%replica%' OR NEW.action LIKE '%reduce%' THEN 'reduce_replicas'
+				WHEN NEW.action LIKE '%optimize%' OR NEW.action LIKE '%rightsize%' THEN 'optimize_resources'
+				WHEN NEW.action LIKE '%restart%' THEN 'restart_pod'
+				WHEN NEW.action LIKE '%evict%' THEN 'evict_pod'
+				ELSE 'reactive'
+			END;
+		END IF;
+	END IF;
 	IF NEW.timestamp IS NULL THEN
 		NEW.timestamp := NEW.executed_at;
 	END IF;

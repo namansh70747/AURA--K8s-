@@ -455,11 +455,11 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
         
         if k8s_tools:
             try:
-                pod_info = k8s_tools.get_pod(analysis_request.namespace, analysis_request.pod_name)
-                events = k8s_tools.get_events(analysis_request.namespace, analysis_request.pod_name, limit=10)
-                logs = k8s_tools.get_pod_logs(analysis_request.namespace, analysis_request.pod_name, lines=50)
-                deployment = k8s_tools.get_deployment_for_pod(analysis_request.namespace, analysis_request.pod_name)
-                metrics = k8s_tools.get_pod_resource_usage(analysis_request.namespace, analysis_request.pod_name)
+        pod_info = k8s_tools.get_pod(analysis_request.namespace, analysis_request.pod_name)
+        events = k8s_tools.get_events(analysis_request.namespace, analysis_request.pod_name, limit=10)
+        logs = k8s_tools.get_pod_logs(analysis_request.namespace, analysis_request.pod_name, lines=50)
+        deployment = k8s_tools.get_deployment_for_pod(analysis_request.namespace, analysis_request.pod_name)
+        metrics = k8s_tools.get_pod_resource_usage(analysis_request.namespace, analysis_request.pod_name)
             except Exception as e:
                 logger.warning(f"Failed to fetch Kubernetes context: {e}, using minimal context")
                 # Use minimal pod_info with just the name
@@ -583,11 +583,14 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                     logger.warning(f"⚠️  AI plan parsing/validation failed: {parse_err}, falling back to MultiStrategy")
                     # Fall through to MultiStrategy fallback
             
-            # FALLBACK: Use multi-strategy planning if AI failed or not available
+            # FALLBACK: Use multi-strategy planning ONLY if ALL AI services failed
+            # MultiStrategy should NOT be used if AI is available - it's a last resort
+            if not ai_response or not ai_source:
+                # All AI services failed - now try MultiStrategy as fallback
             use_multi_strategy = remediation_planner is not None and cost_calculator is not None
             
             if use_multi_strategy:
-                logger.info("Using multi-strategy remediation planning (AI fallback)")
+                    logger.info("⚠️  All AI services failed, using multi-strategy planning as fallback")
                 
                 # Generate multiple strategies
                 multi_plan = remediation_planner.generate_strategies(
@@ -640,7 +643,9 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                     risk_level=best_strategy.risk_level.value,
                     ai_source="MultiStrategy"
                 )
-            else:
+            
+            # Final fallback: Use intelligent fallback if everything failed
+            if not ai_response or not ai_source:
                 # Fallback to original AI-based planning
                 # Try Ollama first (cost-effective), fallback to Gemini if Ollama fails
                 ai_response = None
@@ -683,7 +688,7 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                                         risk_level=fallback_plan.get("risk_level", "medium"),
                                         ai_source="Intelligent-Fallback"
                                     )
-                            else:
+                    else:
                                 logger.warning("⚠️  Groq not available, using intelligent fallback")
                                 fallback_plan = get_intelligent_fallback(analysis_request.issue_type, pod_info, deployment)
                                 return RemediationPlan(
@@ -749,21 +754,21 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                     if ai_source == "Ollama":
                         # Try Gemini first
                         if GEMINI_MODEL:
-                            logger.warning(f"⚠️  Ollama plan validation failed: {parse_err}, retrying with Gemini")
-                            try:
-                                ai_response = await call_gemini(prompt)
-                                plan = parse_remediation_plan(ai_response)
-                                validate_plan(plan)
-                                plan["reasoning"] = f"[Gemini-retry] {plan.get('reasoning', 'AI-generated remediation plan')}"
-                                logger.info("✅ Gemini retry successfully generated valid remediation plan")
-                                return RemediationPlan(
-                                    actions=plan.get("actions", []),
-                                    reasoning=plan.get("reasoning", "AI-generated remediation plan"),
-                                    confidence=plan.get("confidence", 0.75),
-                                    risk_level=plan.get("risk_level", "medium"),
-                                    ai_source="Gemini"
-                                )
-                            except Exception as gemini_retry_err:
+                        logger.warning(f"⚠️  Ollama plan validation failed: {parse_err}, retrying with Gemini")
+                        try:
+                            ai_response = await call_gemini(prompt)
+                            plan = parse_remediation_plan(ai_response)
+                            validate_plan(plan)
+                            plan["reasoning"] = f"[Gemini-retry] {plan.get('reasoning', 'AI-generated remediation plan')}"
+                            logger.info("✅ Gemini retry successfully generated valid remediation plan")
+                            return RemediationPlan(
+                                actions=plan.get("actions", []),
+                                reasoning=plan.get("reasoning", "AI-generated remediation plan"),
+                                confidence=plan.get("confidence", 0.75),
+                                risk_level=plan.get("risk_level", "medium"),
+                                ai_source="Gemini"
+                            )
+                        except Exception as gemini_retry_err:
                                 logger.warning(f"⚠️  Gemini retry also failed: {gemini_retry_err}")
                                 # Try Groq
                                 if GROQ_AVAILABLE:
@@ -792,7 +797,7 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                                             risk_level=fallback_plan.get("risk_level", "medium"),
                                             ai_source="Intelligent-Fallback"
                                         )
-                                else:
+                    else:
                                     logger.warning(f"All AI retries failed, using intelligent fallback")
                                     fallback_plan = get_intelligent_fallback(analysis_request.issue_type, pod_info, deployment)
                                     return RemediationPlan(
@@ -888,7 +893,7 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                     validate_plan(plan)
                     plan["reasoning"] = f"[Gemini-connection-retry] {plan.get('reasoning', 'AI-generated remediation plan')}"
                     logger.info("✅ Gemini successfully generated remediation plan after Ollama connection failure")
-                    return RemediationPlan(
+            return RemediationPlan(
                         actions=plan.get("actions", []),
                         reasoning=plan.get("reasoning", "AI-generated remediation plan"),
                         confidence=plan.get("confidence", 0.75),
@@ -984,7 +989,7 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                         confidence=0.5,
                         risk_level="low",
                         ai_source="Emergency-Fallback"
-                    )
+            )
         except (httpx.TimeoutException, asyncio.TimeoutError) as e:
             logger.error(f"AI analysis failed: timeout error - {type(e).__name__}: {e}", exc_info=True)
             # Retry with Gemini, then Groq, then intelligent fallback
@@ -996,7 +1001,7 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                     validate_plan(plan)
                     plan["reasoning"] = f"[Gemini-timeout-retry] {plan.get('reasoning', 'AI-generated remediation plan')}"
                     logger.info("✅ Gemini successfully generated remediation plan after Ollama timeout")
-                    return RemediationPlan(
+            return RemediationPlan(
                         actions=plan.get("actions", []),
                         reasoning=plan.get("reasoning", "AI-generated remediation plan"),
                         confidence=plan.get("confidence", 0.75),
@@ -1077,7 +1082,7 @@ async def analyze_with_plan_v1(request: Request, analysis_request: IssueAnalysis
                     confidence=fallback_plan.get("confidence", 0.7),
                     risk_level=fallback_plan.get("risk_level", "medium"),
                     ai_source="Intelligent-Fallback"
-                )
+            )
         except httpx.HTTPStatusError as e:
             logger.warning(f"AI analysis failed: HTTP error {e.response.status_code} - {type(e).__name__}: {e}, using intelligent fallback")
             fallback_plan = get_intelligent_fallback(analysis_request.issue_type, pod_info, deployment)
@@ -1132,7 +1137,7 @@ CRITICAL: Use actual pod/deployment name for target. Return ONLY valid JSON."""
                             validate_plan(plan)
                             plan["reasoning"] = f"[Gemini-simplified-retry] {plan.get('reasoning', 'AI-generated remediation plan')}"
                             logger.info("✅ Gemini successfully generated remediation plan with simplified prompt")
-                            return RemediationPlan(
+                return RemediationPlan(
                                 actions=plan.get("actions", []),
                                 reasoning=plan.get("reasoning", "AI-generated remediation plan"),
                                 confidence=plan.get("confidence", 0.75),
@@ -1159,7 +1164,7 @@ CRITICAL: Use actual pod/deployment name for target. Return ONLY valid JSON."""
                                 except Exception as groq_simplified_err:
                                     logger.warning(f"Groq simplified prompt also failed: {groq_simplified_err}")
                                     raise retry_err  # Will trigger intelligent fallback
-                            else:
+            else:
                                 raise retry_err  # Will trigger intelligent fallback
                     elif GROQ_AVAILABLE:
                         # Try Groq with simplified prompt
@@ -1283,48 +1288,52 @@ CRITICAL: Use actual pod/deployment name for target. Return ONLY valid JSON."""
   "confidence": 0.7,
   "risk_level": "low"
 }}"""
-            ai_source_final = None
-            if GEMINI_MODEL:
-                try:
-                    ai_response = await call_gemini(minimal_prompt)
-                    ai_source_final = "Gemini"
-                except Exception as gemini_final_err:
-                    logger.warning(f"Gemini final attempt failed: {gemini_final_err}")
-                    if GROQ_AVAILABLE:
-                        try:
-                            ai_response = await call_groq(minimal_prompt)
-                            ai_source_final = "Groq"
-                        except Exception as groq_final_err:
-                            logger.warning(f"Groq final attempt failed: {groq_final_err}")
+            try:
+                ai_source_final = None
+                if GEMINI_MODEL:
+                    try:
+                        ai_response = await call_gemini(minimal_prompt)
+                        ai_source_final = "Gemini"
+                    except Exception as gemini_final_err:
+                        logger.warning(f"Gemini final attempt failed: {gemini_final_err}")
+                        if GROQ_AVAILABLE:
+                            try:
+                                ai_response = await call_groq(minimal_prompt)
+                                ai_source_final = "Groq"
+                            except Exception as groq_final_err:
+                                logger.warning(f"Groq final attempt failed: {groq_final_err}")
+                                ai_response = await call_ollama(minimal_prompt, retries=1)
+                                ai_source_final = "Ollama"
+                        else:
                             ai_response = await call_ollama(minimal_prompt, retries=1)
                             ai_source_final = "Ollama"
-                    else:
+                elif GROQ_AVAILABLE:
+                    try:
+                        ai_response = await call_groq(minimal_prompt)
+                        ai_source_final = "Groq"
+                    except Exception as groq_final_err:
+                        logger.warning(f"Groq final attempt failed: {groq_final_err}")
                         ai_response = await call_ollama(minimal_prompt, retries=1)
                         ai_source_final = "Ollama"
-            elif GROQ_AVAILABLE:
-                try:
-                    ai_response = await call_groq(minimal_prompt)
-                    ai_source_final = "Groq"
-                except Exception as groq_final_err:
-                    logger.warning(f"Groq final attempt failed: {groq_final_err}")
+                else:
                     ai_response = await call_ollama(minimal_prompt, retries=1)
                     ai_source_final = "Ollama"
-            else:
-                ai_response = await call_ollama(minimal_prompt, retries=1)
-                ai_source_final = "Ollama"
-            
-            plan = parse_remediation_plan(ai_response)
-            validate_plan(plan)
-            return RemediationPlan(
-                actions=plan.get("actions", []),
-                reasoning=plan.get("reasoning", "AI-generated remediation plan"),
-                confidence=plan.get("confidence", 0.7),
-                risk_level=plan.get("risk_level", "low"),
-                ai_source=ai_source_final or "Unknown"
-            )
-        except Exception as final_err:
-            logger.error(f"Final AI attempt failed: {final_err}")
-            raise HTTPException(status_code=500, detail=f"All remediation attempts failed: {str(e)}. Final error: {str(final_err)}") from final_err
+                
+                plan = parse_remediation_plan(ai_response)
+                validate_plan(plan)
+        return RemediationPlan(
+                    actions=plan.get("actions", []),
+                    reasoning=plan.get("reasoning", "AI-generated remediation plan"),
+                    confidence=plan.get("confidence", 0.7),
+                    risk_level=plan.get("risk_level", "low"),
+                    ai_source=ai_source_final or "Unknown"
+                )
+            except Exception as final_err:
+                logger.error(f"Final AI attempt failed: {final_err}")
+                raise HTTPException(status_code=500, detail=f"All remediation attempts failed: {str(e)}. Final error: {str(final_err)}") from final_err
+        except Exception as outer_err:
+            logger.error(f"Outer exception handler failed: {outer_err}")
+            raise HTTPException(status_code=500, detail=f"All remediation attempts failed: {str(e)}. Outer error: {str(outer_err)}") from outer_err
 
 # Legacy endpoint (redirects to v1)
 @app.post("/analyze-with-plan")
@@ -1367,7 +1376,7 @@ async def call_gemini(prompt: str) -> str:
             generation_config=generation_config
         )
         if response and response.text:
-            return response.text
+        return response.text
         else:
             raise Exception("Gemini returned empty response")
     except Exception as e:
@@ -1520,44 +1529,89 @@ def build_comprehensive_prompt(request, pod_info, events, logs, deployment, metr
             if curr.get('cpu_trend', 0) != 0 or curr.get('memory_trend', 0) != 0:
                 historical_metrics_section += f" Trends:CPU={curr.get('cpu_trend', 0):.2f} Mem={curr.get('memory_trend', 0):.2f}"
     
-    # ULTRA-OPTIMIZED MINIMAL PROMPT for fastest AI response (<2000 chars)
-    # Only essential info, compact format
+    # IMPROVED PROMPT: More specific, better guidance for AI to generate correct remediation
     target_name = deployment.get('name') if deployment else request.pod_name
     target_type = "deployment" if deployment else "pod"
     
-    prompt = f"""K8s SRE: Generate JSON remediation for {request.issue_type} in {request.namespace}/{request.pod_name}.
+    # Issue-specific remediation guidance
+    issue_guidance = {
+        "high_cpu": "increase_cpu deployment (factor 1.5-2.0) OR restart_rollout if temporary spike",
+        "high_memory": "increase_memory deployment (factor 1.5-2.0) OR restart_rollout if memory leak",
+        "oom_killed": "increase_memory deployment (factor 2.0) - CRITICAL, must increase resources",
+        "crash_loop": "restart_rollout deployment (preferred) OR restart pod if no deployment",
+        "image_pull_error": "check image name, then restart_rollout deployment",
+        "network_error": "restart_rollout deployment to reset network stack",
+        "disk_pressure": "evict pod OR restart_rollout deployment",
+        "scheduling_failure": "check resources, then increase_memory or increase_cpu",
+    }
+    
+    recommended_action = issue_guidance.get(request.issue_type, "restart_rollout deployment")
+    
+    prompt = f"""You are a Kubernetes SRE expert. Generate a JSON remediation plan for {request.issue_type} issue.
 
-ISSUE: {request.issue_type} | Severity: {request.severity}
-POD: {request.pod_name} | Status: {pod_info.get('status', 'Unknown')} | Ready: {pod_info.get('ready', False)} | Restarts: {pod_info.get('restart_count', 0)}
-DEPLOYMENT: {deployment.get('name') if deployment else 'None'} | Replicas: {deployment.get('replicas') if deployment else 'N/A'}
-METRICS: CPU={metrics.get('cpu_millicores', 'N/A') if metrics else 'N/A'}m, Memory={metrics.get('memory_mib', 'N/A') if metrics else 'N/A'}MiB
-{early_warning_section[:150] if early_warning_section else ''}
-{ml_predictions_section[:150] if ml_predictions_section else ''}
-EVENTS: {events_summary[:100] if events_summary else 'None'}
-ERRORS: {', '.join([e['type'] for e in detected_errors[:2]]) if detected_errors else 'None'}
+POD DETAILS:
+- Name: {request.pod_name}
+- Namespace: {request.namespace}
+- Status: {pod_info.get('status', 'Unknown')}
+- Ready: {pod_info.get('ready', False)}
+- Restart Count: {pod_info.get('restart_count', 0)}
+- Severity: {request.severity}
 
-ACTIONS:
+DEPLOYMENT INFO:
+- Deployment: {deployment.get('name') if deployment else 'None (standalone pod)'}
+- Replicas: {deployment.get('replicas') if deployment else 'N/A'}
+- Target Type: {target_type}
+- Target Name: {target_name}
 
-POD: restart, delete, evict, recreate
-DEPLOYMENT: increase_memory(factor:1.5-2.0), increase_cpu(factor:1.5-2.0), restart_rollout, scale_up(replicas:+1-2), rollback_deployment
-STATEFULSET: increase_memory, increase_cpu, rollback_statefulset
-NODE: drain, uncordon
+METRICS:
+- CPU: {metrics.get('cpu_millicores', 'N/A') if metrics else 'N/A'}m
+- Memory: {metrics.get('memory_mib', 'N/A') if metrics else 'N/A'}MiB
+{early_warning_section[:200] if early_warning_section else ''}
+{ml_predictions_section[:200] if ml_predictions_section else ''}
 
-RULES:
-- Target: Use "{target_name}" (actual name, not placeholder)
-- Type: Use "{target_type}" (pod or deployment)
-- Issue mapping: high_cpu→increase_cpu, high_memory/OOM→increase_memory, crash_loop→restart/restart_rollout
-- If deployment: prefer restart_rollout over pod restart
-- Confidence: 0.9 if clear, 0.8 if probable, 0.7 if uncertain
-- Risk: low for restart, medium for resource changes, high for delete/rollback
+RECENT EVENTS: {events_summary[:150] if events_summary else 'None'}
+DETECTED ERRORS: {', '.join([e['type'] for e in detected_errors[:3]]) if detected_errors else 'None'}
 
-JSON (return ONLY this, no markdown):
+REMEDIATION GUIDANCE:
+For {request.issue_type}: {recommended_action}
+
+AVAILABLE OPERATIONS (use most appropriate, not just restart):
+- POD: restart (last resort), delete (only if necessary), evict (for disk pressure), recreate
+- DEPLOYMENT: 
+  * increase_memory (factor: 1.5-2.5) - for memory issues, OOM kills
+  * increase_cpu (factor: 1.5-2.0) - for CPU throttling, high CPU
+  * scale_up (replicas: +1-2) - distribute load, improve availability
+  * scale_down (replicas: -1) - if over-provisioned
+  * restart_rollout (graceful restart) - for transient issues
+  * rollback_deployment (if recent change caused issue)
+- STATEFULSET: increase_memory, increase_cpu, rollback_statefulset, scale_up
+
+CRITICAL RULES (follow strictly):
+1. Target MUST be actual resource name: "{target_name}" (NOT placeholder)
+2. Type MUST be "{target_type}" (pod or deployment)
+3. AVOID simple restarts - use intelligent remediation:
+   - high_cpu → increase_cpu OR scale_up (prefer over restart)
+   - high_memory/OOM → increase_memory OR scale_up (prefer over restart)
+   - crash_loop → restart_rollout (graceful) OR increase resources if resource-related
+   - Only use restart as last resort
+4. For resource issues: use increase_cpu/increase_memory with factor 1.5-2.5
+5. For load distribution: use scale_up (+1-2 replicas)
+6. For persistent issues after restart: use rollback_deployment
+7. Confidence: 0.9 if clear solution, 0.8 if probable, 0.7 if uncertain
+8. Risk: low for resource increases, medium for scale_up/restart_rollout, high for delete/rollback
+
+CRITICAL: Return ONLY pure JSON. No markdown, no code blocks, no explanations before or after.
+Start your response with {{ and end with }}. Nothing else.
+
+Example format (copy this structure exactly):
 {{
-  "actions": [{{"type": "{target_type}", "target": "{target_name}", "operation": "restart|increase_memory|increase_cpu|restart_rollout", "parameters": {{}}, "order": 0}}],
-  "reasoning": "Brief 30-50 word explanation",
-  "confidence": 0.85,
-  "risk_level": "low|medium|high"
-}}"""
+  "actions": [{{"type": "{target_type}", "target": "{target_name}", "operation": "increase_cpu", "parameters": {{"factor": 1.5}}, "order": 0}}],
+  "reasoning": "High CPU usage detected. Increasing CPU resources by 50% to handle load and prevent throttling.",
+  "confidence": 0.9,
+  "risk_level": "medium"
+}}
+
+Now generate the JSON for {request.issue_type}:"""
 
     return prompt
 
@@ -1579,18 +1633,25 @@ async def call_ollama(prompt: str, retries: Optional[int] = None) -> str:
     for attempt in range(retries):
         try:
             async with httpx.AsyncClient(timeout=OLLAMA_REQUEST_TIMEOUT) as client:
+                # Enhanced prompt with explicit JSON-only instruction
+                enhanced_prompt = f"""{prompt}
+
+REMEMBER: Return ONLY JSON. Start with {{ and end with }}. No markdown, no code blocks, no explanations."""
+                
                 # Use correct Ollama API format with "options" object
                 response = await client.post(
                     f"{OLLAMA_URL}/api/generate",
                     json={
                         "model": OLLAMA_MODEL,
-                        "prompt": prompt,
+                        "prompt": enhanced_prompt,
                         "stream": False,
                         "options": {
-                            "num_predict": 300,  # Further reduced for faster response
-                            "temperature": 0.0,
-                            "top_p": 0.9,
-                            "top_k": 10,  # Reduced for faster generation
+                            "num_predict": 600,  # Increased for complete JSON generation
+                            "temperature": 0.1,  # Slightly higher for better creativity in remediation
+                            "top_p": 0.95,
+                            "top_k": 40,
+                            "repeat_penalty": 1.15,  # Prevent repetition
+                            "stop": ["```", "```json", "```python", "\n\nHere", "\n\nResponse:", "\n\nJSON:"]  # Stop at code blocks and explanations
                         }
                     },
                     timeout=OLLAMA_REQUEST_TIMEOUT,
@@ -1621,7 +1682,7 @@ async def call_ollama(prompt: str, retries: Optional[int] = None) -> str:
                                 continue
                 else:
                     # Non-streaming response
-                    result = response.json()
+                result = response.json()
                     raw_response = result.get("response", "")
                 
                 # Log the raw response for debugging (first 500 chars)
@@ -1724,7 +1785,7 @@ def parse_remediation_plan(response_text: str) -> dict:
                                 logger.info("Fixed JSON by removing trailing commas")
                                 return plan
                         except:
-                            continue
+                        continue
         
         # Fallback: try original method
         start_idx = cleaned.find("{")
@@ -1733,19 +1794,19 @@ def parse_remediation_plan(response_text: str) -> dict:
         if start_idx == -1 or end_idx == 0:
             logger.warning(f"No JSON in response: {cleaned[:200]}")
             raise ValueError("No JSON found")
-        
+
         json_str = cleaned[start_idx:end_idx]
         # Try to fix common JSON errors
         json_str = re.sub(r',\s*}', '}', json_str)
         json_str = re.sub(r',\s*]', ']', json_str)
         try:
-            plan = json.loads(json_str)
-            
-            # Validate structure comprehensively
-            if not validate_plan_structure(plan):
-                raise ValueError("Plan structure validation failed")
-            
-            return plan
+        plan = json.loads(json_str)
+        
+        # Validate structure comprehensively
+        if not validate_plan_structure(plan):
+            raise ValueError("Plan structure validation failed")
+
+        return plan
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse JSON even after fixing: {e}") from e
 
@@ -1904,20 +1965,20 @@ def get_intelligent_fallback(issue_type: str, pod_info: dict, deployment: Option
         # Use actual resource names instead of placeholders
         if deployment and deployment.get("name"):
             # Pod has deployment - use deployment operation
-            return {
-                "actions": [
-                    {
+        return {
+            "actions": [
+                {
                         "type": "deployment",
                         "target": deployment["name"],  # Use actual deployment name
                         "operation": "increase_memory",
                         "parameters": {"factor": 1.8},
-                        "order": 0
-                    }
-                ],
-                "reasoning": f"OOM detected in {issue_type}. Increasing memory by 80% to prevent recurrence.",
-                "confidence": 0.85,
-                "risk_level": "medium"
-            }
+                    "order": 0
+                }
+            ],
+            "reasoning": f"OOM detected in {issue_type}. Increasing memory by 80% to prevent recurrence.",
+            "confidence": 0.85,
+            "risk_level": "medium"
+        }
         else:
             # Standalone pod - use pod restart (will be rescheduled with more resources if available)
             return {
@@ -1932,8 +1993,8 @@ def get_intelligent_fallback(issue_type: str, pod_info: dict, deployment: Option
                 ],
                 "reasoning": f"OOM detected in standalone pod {pod_name}. Restarting pod to clear memory and allow rescheduling.",
                 "confidence": 0.80,
-                "risk_level": "medium"
-            }
+            "risk_level": "medium"
+        }
     
     elif "crash" in issue_lower or "backoff" in issue_lower:
         # Use actual pod name
@@ -1953,20 +2014,20 @@ def get_intelligent_fallback(issue_type: str, pod_info: dict, deployment: Option
                 "risk_level": "low"
             }
         else:
-            return {
-                "actions": [
-                    {
-                        "type": "pod",
-                        "target": pod_name,  # Use actual pod name
-                        "operation": "restart",
-                        "parameters": {"grace_period_seconds": 30},
-                        "order": 0
-                    }
-                ],
-                "reasoning": f"Crash loop detected. Restarting pod to attempt recovery. Monitor for recurring crashes.",
-                "confidence": 0.75,
-                "risk_level": "low"
-            }
+        return {
+            "actions": [
+                {
+                    "type": "pod",
+                    "target": pod_name,  # Use actual pod name
+                    "operation": "restart",
+                    "parameters": {"grace_period_seconds": 30},
+                    "order": 0
+                }
+            ],
+            "reasoning": f"Crash loop detected. Restarting pod to attempt recovery. Monitor for recurring crashes.",
+            "confidence": 0.75,
+            "risk_level": "low"
+        }
     
     elif "cpu" in issue_lower:
         actions = []

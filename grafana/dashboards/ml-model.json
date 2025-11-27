@@ -339,7 +339,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -380,7 +380,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -421,7 +421,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -462,7 +462,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -503,7 +503,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -544,7 +544,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -585,7 +585,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -626,7 +626,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -667,7 +667,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -708,7 +708,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -749,7 +749,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -790,7 +790,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -831,7 +831,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -872,7 +872,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -913,7 +913,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -954,7 +954,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -995,7 +995,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1036,7 +1036,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1077,7 +1077,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1118,7 +1118,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1159,7 +1159,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1200,7 +1200,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1241,7 +1241,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1282,7 +1282,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1323,7 +1323,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1364,7 +1364,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1405,7 +1405,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1446,7 +1446,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1487,7 +1487,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1528,7 +1528,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1569,7 +1569,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1610,7 +1610,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1651,7 +1651,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1692,7 +1692,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1733,7 +1733,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1774,7 +1774,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1815,7 +1815,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1856,7 +1856,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1897,7 +1897,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1938,7 +1938,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -1979,7 +1979,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2020,7 +2020,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2061,7 +2061,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2102,7 +2102,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2143,7 +2143,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2184,7 +2184,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2225,7 +2225,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2266,7 +2266,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"
@@ -2307,7 +2307,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(COUNT(*), 0) as value\nFROM ml_predictions\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "format": "time_series",
           "timeColumn": "time"

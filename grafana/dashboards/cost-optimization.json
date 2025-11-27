@@ -70,7 +70,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  SUM(\n    CASE\n      -- Only use REAL limits for cost calculation (no estimates)\n      WHEN cpu_limit_millicores > 0 AND memory_limit_bytes > 0 THEN\n        ((COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_limit_millicores > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_limit_bytes > 0 THEN\n        (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      -- If no limits but we have real usage, calculate cost from actual usage (real values only)\n      WHEN cpu_usage_millicores > 0 AND memory_usage_bytes > 0 THEN\n        ((COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_usage_millicores > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_usage_bytes > 0 THEN\n        (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      ELSE 0\n    END\n  ) as daily_cost\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  SUM(\n    CASE\n      -- Only use REAL limits for cost calculation (no estimates)\n      WHEN cpu_limit_millicores > 0 AND memory_limit_bytes > 0 THEN\n        ((COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_limit_millicores > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_limit_bytes > 0 THEN\n        (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      -- If no limits but we have real usage, calculate cost from actual usage (real values only)\n      WHEN cpu_usage_millicores > 0 AND memory_usage_bytes > 0 THEN\n        ((COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)) * 24\n      WHEN cpu_usage_millicores > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) * 24\n      WHEN memory_usage_bytes > 0 THEN\n        (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035) * 24\n      ELSE 0\n    END\n  ) as daily_cost\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -146,7 +146,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as total_savings\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as total_savings\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -228,7 +228,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  COALESCE(AVG(\n    CASE\n      WHEN cpu_utilization > 0 OR memory_utilization > 0 THEN\n        (COALESCE(cpu_utilization, 0) + COALESCE(memory_utilization, 0)) / 2.0\n      WHEN cpu_limit_millicores > 0 AND cpu_usage_millicores > 0 THEN\n        (cpu_usage_millicores / cpu_limit_millicores * 100.0 + COALESCE(memory_utilization, 0)) / 2.0\n      WHEN memory_limit_bytes > 0 AND memory_usage_bytes > 0 THEN\n        (COALESCE(cpu_utilization, 0) + (memory_usage_bytes::float / memory_limit_bytes * 100.0)) / 2.0\n      ELSE 0\n    END\n  ), 0.0) as resource_efficiency\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  COALESCE(AVG(\n    CASE\n      WHEN cpu_utilization > 0 OR memory_utilization > 0 THEN\n        (COALESCE(cpu_utilization, 0) + COALESCE(memory_utilization, 0)) / 2.0\n      WHEN cpu_limit_millicores > 0 AND cpu_usage_millicores > 0 THEN\n        (cpu_usage_millicores / cpu_limit_millicores * 100.0 + COALESCE(memory_utilization, 0)) / 2.0\n      WHEN memory_limit_bytes > 0 AND memory_usage_bytes > 0 THEN\n        (COALESCE(cpu_utilization, 0) + (memory_usage_bytes::float / memory_limit_bytes * 100.0)) / 2.0\n      ELSE 0\n    END\n  ), 0.0) as resource_efficiency\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  AND namespace NOT IN ('kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage')\n  AND (cpu_utilization IS NOT NULL OR memory_utilization IS NOT NULL OR cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -304,7 +304,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', executed_at) as time,\n  COALESCE(COUNT(*), 0) as optimization_count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \n  AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources', 'rightsizing')\n  AND success = true\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', executed_at)\n        ELSE date_trunc('1 minute', executed_at)\n    END as time,\n  COALESCE(COUNT(*), 0) as optimization_count\nFROM remediations\nWHERE $__timeFilter(executed_at)\n  \n  AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources', 'rightsizing')\n  AND success = true\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -405,7 +405,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  SUM(\n    CASE\n      -- Only use REAL limits for cost calculation (no estimates)\n      WHEN cpu_limit_millicores > 0 AND memory_limit_bytes > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      WHEN cpu_limit_millicores > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031)\n      WHEN memory_limit_bytes > 0 THEN\n        (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      -- If no limits but we have real usage, calculate cost from actual usage (real values only)\n      WHEN cpu_usage_millicores > 0 AND memory_usage_bytes > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      WHEN cpu_usage_millicores > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031)\n      WHEN memory_usage_bytes > 0 THEN\n        (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      ELSE 0\n    END\n  ) as \"Hourly Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  \n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  SUM(\n    CASE\n      -- Only use REAL limits for cost calculation (no estimates)\n      WHEN cpu_limit_millicores > 0 AND memory_limit_bytes > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      WHEN cpu_limit_millicores > 0 THEN\n        (COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031)\n      WHEN memory_limit_bytes > 0 THEN\n        (COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      -- If no limits but we have real usage, calculate cost from actual usage (real values only)\n      WHEN cpu_usage_millicores > 0 AND memory_usage_bytes > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031) + (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      WHEN cpu_usage_millicores > 0 THEN\n        (COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031)\n      WHEN memory_usage_bytes > 0 THEN\n        (COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035)\n      ELSE 0\n    END\n  ) as \"Hourly Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  \n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -787,7 +787,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', timestamp) as time,\n  SUM(\n    CASE\n      -- Only use REAL limits or real usage (no estimates)\n      WHEN cpu_limit_millicores > 0 THEN COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031\n      WHEN cpu_usage_millicores > 0 THEN COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031\n      ELSE 0\n    END\n  ) as \"CPU Cost\",\n  SUM(\n    CASE\n      WHEN memory_limit_bytes > 0 THEN COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035\n      WHEN memory_usage_bytes > 0 THEN COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035\n      ELSE 0\n    END\n  ) as \"Memory Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  \n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time,\n  SUM(\n    CASE\n      -- Only use REAL limits or real usage (no estimates)\n      WHEN cpu_limit_millicores > 0 THEN COALESCE(cpu_limit_millicores, 0) / 1000.0 * 0.031\n      WHEN cpu_usage_millicores > 0 THEN COALESCE(cpu_usage_millicores, 0) / 1000.0 * 0.031\n      ELSE 0\n    END\n  ) as \"CPU Cost\",\n  SUM(\n    CASE\n      WHEN memory_limit_bytes > 0 THEN COALESCE(memory_limit_bytes, 0) / (1024*1024*1024.0) * 0.0035\n      WHEN memory_usage_bytes > 0 THEN COALESCE(memory_usage_bytes, 0) / (1024*1024*1024.0) * 0.0035\n      ELSE 0\n    END\n  ) as \"Memory Cost\"\nFROM pod_metrics\nWHERE $__timeFilter(timestamp)\n  \n  AND (cpu_limit_millicores > 0 OR memory_limit_bytes > 0 OR cpu_usage_millicores > 0 OR memory_usage_bytes > 0)\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -904,7 +904,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time_bucket('1 minute', COALESCE(timestamp, executed_at)) as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as \"Savings\"\nFROM remediations\nWHERE $__timeFilter(COALESCE(timestamp, executed_at))\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', COALESCE(timestamp, executed_at)\n        ELSE date_trunc('1 minute', COALESCE(timestamp, executed_at)\n    END) as time,\n  SUM(\n    CASE\n      WHEN success = true AND strategy IN ('scale_down', 'reduce_replicas', 'optimize_resources')\n      THEN 50.0\n      ELSE 0\n    END\n  ) as \"Savings\"\nFROM remediations\nWHERE $__timeFilter(COALESCE(timestamp, executed_at))\nGROUP BY time\nORDER BY time",
           "refId": "A",
           "select": [
             [
@@ -943,7 +943,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -987,7 +987,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1031,7 +1031,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1083,7 +1083,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
@@ -1135,7 +1135,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -1179,7 +1179,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT time_bucket('1 minute', timestamp) as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT CASE \n        WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') \n        THEN time_bucket('1 minute', timestamp)\n        ELSE date_trunc('1 minute', timestamp)\n    END as time, COALESCE(COUNT(*), 0) as value FROM cost_savings WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
           "refId": "A",
           "format": "table",
           "datasource": {
